@@ -26,7 +26,7 @@ A Neovim plugin for live editing [midx](https://github.com/123Untitled/midx) fil
 
 ```lua
 {
-  '123Untitled/midx',
+  '123Untitled/midx.nvim',
   ft = 'midx',  -- Lazy load on .midx files
   config = function()
     require('midx').setup()
@@ -38,7 +38,7 @@ A Neovim plugin for live editing [midx](https://github.com/123Untitled/midx) fil
 
 ```lua
 use {
-  '123Untitled/midx',
+  '123Untitled/midx.nvim',
   ft = 'midx',
   config = function()
     require('midx').setup()
@@ -51,7 +51,7 @@ use {
 Clone to your Neovim config directory:
 
 ```bash
-git clone https://github.com/123Untitled/midx ~/.config/nvim/pack/plugins/start/midx.nvim
+git clone https://github.com/123Untitled/midx.nvim ~/.config/nvim/pack/plugins/start/midx.nvim
 ```
 
 Then add to your `init.lua`:
