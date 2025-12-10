@@ -151,15 +151,15 @@ The plugin displays a winbar at the top of `.midx` buffers showing:
 
 The plugin defines custom highlight groups that link to standard Neovim groups:
 
-│ Group              │ Links to    │ Purpose                │
-│--------------------│-------------│------------------------│
-│ `MidxBrand`        │ `Normal`    │ Branding text          │
-│ `MidxConnected`    │ `String`    │ Connected indicator    │
-│ `MidxDisconnected` │ `Error`     │ Disconnected indicator │
-│ `MidxPlaying`      │ `Keyword`   │ Playing state          │
-│ `MidxPaused`       │ `Normal`    │ Paused state           │
-│ `MidxInfo`         │ `WarningMsg`│ Info messages          │
-│ `MidxError`        │ `ErrorMsg`  │ Error messages         │
+| Group              | Links to    | Purpose                |
+|--------------------|-------------|------------------------|
+| `MidxBrand`        | `Normal`    | Branding text          |
+| `MidxConnected`    | `String`    | Connected indicator    |
+| `MidxDisconnected` | `Error`     | Disconnected indicator |
+| `MidxPlaying`      | `Keyword`   | Playing state          |
+| `MidxPaused`       | `Normal`    | Paused state           |
+| `MidxInfo`         | `WarningMsg`| Info messages          |
+| `MidxError`        | `ErrorMsg`  | Error messages         |
 
 You can override these in your colorscheme if desired.
 
