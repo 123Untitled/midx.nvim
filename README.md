@@ -1,6 +1,6 @@
 # midx.nvim
 
-A Neovim plugin for live editing [MIDX](https://github.com/your-username/midx) files with real-time MIDI feedback and syntax highlighting.
+A Neovim plugin for live editing [midx](https://github.com/123Untitled/midx) files with real-time MIDI feedback and syntax highlighting.
 
 ## Features
 
@@ -15,7 +15,7 @@ A Neovim plugin for live editing [MIDX](https://github.com/your-username/midx) f
 ## Requirements
 
 - Neovim >= 0.8.0
-- [MIDX](https://github.com/your-username/midx) server running
+- [midx](https://github.com/123Untitled/midx) server running
 
 ## Installation
 
@@ -23,7 +23,7 @@ A Neovim plugin for live editing [MIDX](https://github.com/your-username/midx) f
 
 ```lua
 {
-  'your-username/midx.nvim',
+  '123Untitled/midx',
   ft = 'midx',  -- Lazy load on .midx files
   config = function()
     require('midx').setup()
@@ -35,7 +35,7 @@ A Neovim plugin for live editing [MIDX](https://github.com/your-username/midx) f
 
 ```lua
 use {
-  'your-username/midx.nvim',
+  '123Untitled/midx',
   ft = 'midx',
   config = function()
     require('midx').setup()
@@ -48,7 +48,7 @@ use {
 Clone to your Neovim config directory:
 
 ```bash
-git clone https://github.com/your-username/midx.nvim ~/.config/nvim/pack/plugins/start/midx.nvim
+git clone https://github.com/123Untitled/midx ~/.config/nvim/pack/plugins/start/midx.nvim
 ```
 
 Then add to your `init.lua`:
@@ -91,12 +91,12 @@ require('midx').setup()
 
 1. Start the MIDX server:
    ```bash
-   ./midx run
+   ./midx
    ```
 
 2. Open a `.midx` file in Neovim:
    ```bash
-   nvim tests/hello.midx
+   nvim hello.midx
    ```
 
 3. The plugin automatically:
@@ -170,7 +170,3 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 MIT
-
-## Related
-
-- [MIDX](https://github.com/your-username/midx) - The MIDX language and server
