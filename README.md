@@ -2,6 +2,7 @@
 
 A Neovim plugin for live editing [midx](https://github.com/123Untitled/midx) files with real-time MIDI feedback and syntax highlighting.
 
+
 ## Features
 
 - 🎵 **Live Hot Reload** - Changes are sent to MIDX server in real-time without manual saves
@@ -12,14 +13,16 @@ A Neovim plugin for live editing [midx](https://github.com/123Untitled/midx) fil
 - 🔄 **Auto-reconnection** - Automatically reconnects to MIDX server if connection is lost
 - 📝 **Smart Indentation** - Context-aware indentation for MIDX syntax
 
+
 ## Requirements
 
 - Neovim >= 0.8.0
 - [midx](https://github.com/123Untitled/midx) server running
 
+
 ## Installation
 
-### [lazy.nvim](https://github.com/folke/lazy.nvim)
+#### [lazy.nvim](https://github.com/folke/lazy.nvim)
 
 ```lua
 {
@@ -31,7 +34,7 @@ A Neovim plugin for live editing [midx](https://github.com/123Untitled/midx) fil
 }
 ```
 
-### [packer.nvim](https://github.com/wbthomason/packer.nvim)
+#### [packer.nvim](https://github.com/wbthomason/packer.nvim)
 
 ```lua
 use {
@@ -43,7 +46,7 @@ use {
 }
 ```
 
-### Manual
+#### Manual
 
 Clone to your Neovim config directory:
 
@@ -56,6 +59,7 @@ Then add to your `init.lua`:
 ```lua
 require('midx').setup()
 ```
+
 
 ## Configuration
 
@@ -71,9 +75,10 @@ require('midx').setup()
 - **Auto-reconnect interval**: 100ms
 - **Filetype detection**: Automatic for `.midx` files
 
+
 ## Usage
 
-### Commands
+#### Commands
 
 | Command           | Description                    |
 |-------------------|--------------------------------|
@@ -81,13 +86,13 @@ require('midx').setup()
 | `:MidxSwitch`     | Switch active buffer           |
 | `:MidxStatus`     | Display connection status      |
 
-### ⌨ Keybindings
+#### ⌨ Keybindings
 
 | Key       | Mode   | Action            |
 |-----------|--------|-------------------|
 | `<space>` | Normal | Toggle play/pause |
 
-### 🚀 Workflow
+#### 🚀 Workflow
 
 1. Start the MIDX server:
    ```bash
@@ -109,6 +114,7 @@ require('midx').setup()
 5. Press `<space>` to toggle playback
 
 6. Active tokens are highlighted during evaluation
+
 
 ## How It Works
 
