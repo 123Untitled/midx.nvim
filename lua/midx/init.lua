@@ -235,10 +235,11 @@ end
 
 --- Main setup function
 function M.setup()
-	-- Register .midx filetype
-	vim.filetype.add({
-		extension = {midx = 'midx'}
-	})
+	-- NOTE: Filetype registration moved to plugin/midx.lua
+	-- This ensures filetype is detected before lazy-loading
+	-- vim.filetype.add({
+	-- 	extension = {midx = 'midx'}
+	-- })
 
 	-- Initialize protocol layer
 	protocol.setup()
