@@ -81,13 +81,13 @@ require('midx').setup()
 | `:MidxSwitch`     | Switch active buffer           |
 | `:MidxStatus`     | Display connection status      |
 
-### Keybindings
+### ⌨ Keybindings
 
 | Key       | Mode   | Action            |
 |-----------|--------|-------------------|
 | `<space>` | Normal | Toggle play/pause |
 
-### Workflow
+### 🚀 Workflow
 
 1. Start the MIDX server:
    ```bash
@@ -147,7 +147,7 @@ The plugin displays a winbar at the top of `.midx` buffers showing:
 - **Error indicator**: ⚠ Error (if any)
 - **Retry counter**: (retry N) when reconnecting
 
-## Highlight Groups
+## 🌈 Highlight Groups
 
 The plugin defines custom highlight groups that link to standard Neovim groups:
 
@@ -162,11 +162,3 @@ The plugin defines custom highlight groups that link to standard Neovim groups:
 | `MidxError`        | `ErrorMsg`  | Error messages         |
 
 You can override these in your colorscheme if desired.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-Apache-2.0 License © 2025 123Untitled
