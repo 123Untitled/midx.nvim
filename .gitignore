@@ -1,0 +1,8 @@
+
+# -- G I T  I G N O R E -------------------------------------------------------
+
+# ignore desktop service files
+/**/.DS_Store
+
+# ignore swap files
+/**/*.swp
