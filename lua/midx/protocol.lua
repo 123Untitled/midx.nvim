@@ -13,7 +13,14 @@ local method = {
 }
 
 local fmt = '<I4I4I4I4'  -- 4 unsigned 32-bit integers (little-endian)
-local magic = string.unpack('>I4', 'MIDX')  -- Magic number for protocol identification
+
+local magic = string.pack(">I4",
+    (string.byte("M") << 24) |
+    (string.byte("I") << 16) |
+    (string.byte("D") << 8)  |
+    (string.byte("X"))
+)
+-- magic number "MIDX" in big-endian
 
 
 local M = {}
