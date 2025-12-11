@@ -14,13 +14,8 @@ local method = {
 
 local fmt = '<I4I4I4I4'  -- 4 unsigned 32-bit integers (little-endian)
 
-local magic = string.pack(">I4",
-    (string.byte("M") << 24) |
-    (string.byte("I") << 16) |
-    (string.byte("D") << 8)  |
-    (string.byte("X"))
-)
--- magic number "MIDX" in big-endian
+local magic = 0x4D494458
+-- magic number "MIDX" (endianness: 0x4D='M', 0x49='I', 0x44='D', 0x58='X')
 
 
 local M = {}
