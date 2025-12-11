@@ -4,6 +4,18 @@
 
 local events = require('midx.events')
 
+local method = {
+	update = 0,
+	play   = 1,
+	stop   = 2,
+	toggle = 3,
+	state  = 4
+}
+
+local fmt = '<I4I4I4I4'  -- 4 unsigned 32-bit integers (little-endian)
+local magic = string.unpack('>I4', 'MIDX')  -- Magic number for protocol identification
+
+
 local M = {}
 
 -- Message buffer for partial JSON accumulation
@@ -12,21 +24,33 @@ local buffer = ''
 --- Encode UPDATE message
 -- @param content string - Buffer content to send
 -- @return string - Encoded message ready to send
-function M.encode_update(content)
-	if type(content) ~= 'string' then
-		error('protocol.encode_update: content must be a string')
+function M.encode_update(payload)
+	if type(payload) ~= 'string' then
+		error('protocol.encode_update: payload must be a string')
 	end
 
-	local size = #content
-	local header = 'UPDATE' .. tostring(size) .. '\n'
-	return header .. content
+	local header = string.pack(fmt, magic, 0, method.update, #payload)
+	return header .. payload
 end
+--function M.encode_update(content)
+--	if type(content) ~= 'string' then
+--		error('protocol.encode_update: content must be a string')
+--	end
+--
+--	local size = #content
+--	local header = 'UPDATE' .. tostring(size) .. '\n'
+--	return header .. content
+--end
 
 --- Encode TOGGLE message
 -- @return string - Encoded message ready to send
 function M.encode_toggle()
-	return 'TOGGLE\n'
+	local header = string.pack(fmt, magic, 0, method.toggle, 0)
+	return header
 end
+--function M.encode_toggle()
+--	return 'TOGGLE\n'
+--end
 
 --- Decode incoming raw data
 -- Accumulates partial messages and emits complete JSON messages
