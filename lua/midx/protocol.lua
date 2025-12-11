@@ -13,38 +13,38 @@ local method = {
 }
 
 
--- magic number "MIDX" (endianness: 0x4D='M', 0x49='I', 0x44='D', 0x58='X')
-local magic = 0x4D494458
 
 
 local M = {}
 
-local function u32_to_bytes_be(n)
+local function u32_be(n)
 	return string.char(
-		bit.rshift(n, 24) % 256,
-		bit.rshift(n, 16) % 256,
-		bit.rshift(n, 8)  % 256,
-		n % 256
+		bit.band(bit.rshift(n, 24), 0xFF),
+		bit.band(bit.rshift(n, 16), 0xFF),
+		bit.band(bit.rshift(n, 8), 0xFF),
+		bit.band(n, 0xFF)
 	)
 end
+
 local function u32_le(n)
-	--return string.char(
-	--	n % 256,
-	--	bit.rshift(n, 8)  % 256,
-	--	bit.rshift(n, 16) % 256,
-	--	bit.rshift(n, 24) % 256
-	--)
 	return string.char(
-        n        & 0xFF,
-        (n >> 8) & 0xFF,
-        (n >>16) & 0xFF,
-        (n >>24) & 0xFF
-    )
+		bit.band(n, 0xFF),
+		bit.band(bit.rshift(n, 8), 0xFF),
+		bit.band(bit.rshift(n, 16), 0xFF),
+		bit.band(bit.rshift(n, 24), 0xFF)
+	)
 end
 
+
+-- magic number "MIDX" (endianness: 0x4D='M', 0x49='I', 0x44='D', 0x58='X')
+--local magic = 0x4D494458
+local magic = 'MIDX'
+
+
 local function make_header(method, length)
-	return u32_le(magic) .. u32_le(0) .. u32_le(method) .. u32_le(length)
+	return magic .. u32_le(0) .. u32_le(method) .. u32_le(length)
 end
+	--return u32_le(magic) .. u32_le(0) .. u32_le(method) .. u32_le(length)
 
 
 -- Message buffer for partial JSON accumulation
