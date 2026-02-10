@@ -16,6 +16,9 @@ local M = {}
 local ns_highlight = vim.api.nvim_create_namespace('midx')
 local ns_animation = vim.api.nvim_create_namespace('midx_animation')
 
+
+local animation_marks = {}
+
 --- Handle incoming messages from server
 -- @param msg table - Parsed JSON message
 local function on_message(msg)
@@ -55,21 +58,63 @@ local function on_message(msg)
 		return
 	end
 
-	-- Animation highlight message
-	if msg.type == "animation" and msg.highlights then
-		vim.api.nvim_buf_clear_namespace(bufnr, ns_animation, 0, -1)
-		for _, h in ipairs(msg.highlights) do
-			vim.api.nvim_buf_add_highlight(
-				bufnr,
-				ns_animation,
-				h.g or 'Normal',
-				(h.l or 0),
-				(h.s or 0),
-				(h.e or -1)
-			)
+	-- Animation highlight message (OLD IMPL)
+	--if msg.type == "animation" and msg.highlights then
+	--	vim.api.nvim_buf_clear_namespace(bufnr, ns_animation, 0, -1)
+	--	for _, h in ipairs(msg.highlights) do
+	--		vim.api.nvim_buf_add_highlight(
+	--			bufnr,
+	--			ns_animation,
+	--			h.g or 'Normal',
+	--			(h.l or 0),
+	--			(h.s or 0),
+	--			(h.e or -1)
+	--		)
+	--	end
+	--	return
+	--end
+
+	-- Animation highlight message (NEW IMPL with extmarks)
+	if msg.type == "animation" then
+
+		-- remove expired highlights
+		if msg.off then
+			for _, id in ipairs(msg.off) do
+				local mark = animation_marks[id]
+				if mark then
+					vim.api.nvim_buf_del_extmark(bufnr, ns_animation, mark)
+					animation_marks[id] = nil
+				end
+			end
 		end
+
+		-- add new highlights
+		if msg.on then
+			for _, h in ipairs(msg.on) do
+				-- supprime l'ancien extmark si il existe déjà
+				local old = animation_marks[h.id]
+				if old then
+					vim.api.nvim_buf_del_extmark(bufnr, ns_animation,
+					old)
+				end
+
+				local mark = vim.api.nvim_buf_set_extmark(
+					bufnr,
+					ns_animation,
+					(h.l or 0),
+					(h.s or 0),
+					{
+						end_col = (h.e or 0),
+						hl_group = h.g or 'Normal',
+					}
+				)
+				animation_marks[h.id] = mark
+			end
+		end
+
 		return
 	end
+
 
 	-- Diagnostic message
 	if msg.type == "diagnostic" and msg.diagnostics then
