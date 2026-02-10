@@ -227,6 +227,8 @@ local function setup_autocommands()
 				local msg = protocol.encode_update(content)
 				connection.send(msg)
 			end
+
+			clear_animation_highlights()
 		end
 	})
 end
