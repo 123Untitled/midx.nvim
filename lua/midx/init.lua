@@ -184,6 +184,7 @@ end
 local function clear_animation_highlights()
 	local bufnr = vim.api.nvim_get_current_buf()
 	vim.api.nvim_buf_clear_namespace(bufnr, ns_animation, 0, -1)
+	animation_marks = {}
 end
 
 --- Setup autocommands for Neovim events
