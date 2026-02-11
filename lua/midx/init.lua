@@ -104,7 +104,7 @@ local function on_message(msg)
 					(h.l or 0),
 					(h.s or 0),
 					{
-						end_col = (h.e or 0),
+						end_col = (h.e or -1),
 						hl_group = h.g or 'Normal',
 					}
 				)
@@ -228,7 +228,7 @@ local function setup_autocommands()
 				connection.send(msg)
 			end
 
-			clear_animation_highlights()
+			--clear_animation_highlights()
 		end
 	})
 end
