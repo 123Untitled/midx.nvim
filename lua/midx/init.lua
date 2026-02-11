@@ -74,8 +74,16 @@ local function on_message(msg)
 	--	return
 	--end
 
+
 	-- Animation highlight message (NEW IMPL with extmarks)
 	if msg.type == "animation" then
+
+
+		if msg.clear then
+			vim.api.nvim_buf_clear_namespace(bufnr, ns_animation, 0, -1)
+			animation_marks = {}
+		end
+
 
 		-- remove expired highlights
 		if msg.off then
