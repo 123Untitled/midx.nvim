@@ -16,6 +16,9 @@ local M = {}
 local ns_highlight = vim.api.nvim_create_namespace('midx')
 local ns_animation = vim.api.nvim_create_namespace('midx_animation')
 
+local uv = vim.loop
+local update_timer = nil
+local DEBOUNCE_MS = 40
 
 local animation_marks = {}
 
@@ -57,22 +60,6 @@ local function on_message(msg)
 		end
 		return
 	end
-
-	-- Animation highlight message (OLD IMPL)
-	--if msg.type == "animation" and msg.highlights then
-	--	vim.api.nvim_buf_clear_namespace(bufnr, ns_animation, 0, -1)
-	--	for _, h in ipairs(msg.highlights) do
-	--		vim.api.nvim_buf_add_highlight(
-	--			bufnr,
-	--			ns_animation,
-	--			h.g or 'Normal',
-	--			(h.l or 0),
-	--			(h.s or 0),
-	--			(h.e or -1)
-	--		)
-	--	end
-	--	return
-	--end
 
 
 	-- Animation highlight message (NEW IMPL with extmarks)
@@ -230,13 +217,21 @@ local function setup_autocommands()
 				return
 			end
 
-			local content = buffer.get_content()
-			if content then
-				local msg = protocol.encode_update(content)
-				connection.send(msg)
+			if not update_timer then
+				update_timer = uv.new_timer()
 			end
 
-			--clear_animation_highlights()
+			update_timer:stop()
+			update_timer:start(DEBOUNCE_MS, 0, function()
+				vim.schedule(function()
+					local content = buffer.get_content()
+					if content then
+						local msg = protocol.encode_update(content)
+						connection.send(msg)
+					end
+				end)
+			end)
+
 		end
 	})
 end
