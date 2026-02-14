@@ -217,20 +217,23 @@ local function setup_autocommands()
 				return
 			end
 
-			if not update_timer then
-				update_timer = uv.new_timer()
-			end
+			-- !debounce updates to avoid flooding the server
+			-- temporarily disabled for testing!:
 
-			update_timer:stop()
-			update_timer:start(DEBOUNCE_MS, 0, function()
-				vim.schedule(function()
+			--if not update_timer then
+			--	update_timer = uv.new_timer()
+			--end
+			--
+			--update_timer:stop()
+			--update_timer:start(DEBOUNCE_MS, 0, function()
+			--	vim.schedule(function()
 					local content = buffer.get_content()
 					if content then
 						local msg = protocol.encode_update(content)
 						connection.send(msg)
 					end
-				end)
-			end)
+			--	end)
+			--end)
 
 		end
 	})
