@@ -195,7 +195,7 @@ local function setup_autocommands()
 		pattern  = 'midx',
 		callback = function(args)
 			buffer.attach(args.buf)
-			vim.bo[args.buf].commentstring = '~ %s'
+			vim.bo[args.buf].commentstring = '~~ %s'
 		end
 	})
 
