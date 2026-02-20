@@ -49,13 +49,16 @@ local function on_message(msg)
 	if msg.type == "highlight" and msg.highlights then
 		vim.api.nvim_buf_clear_namespace(bufnr, ns_highlight, 0, -1)
 		for _, h in ipairs(msg.highlights) do
-			vim.api.nvim_buf_add_highlight(
+			vim.api.nvim_buf_set_extmark(
 				bufnr,
 				ns_highlight,
-				h.g or 'Normal',
-				(h.l or 0),
-				(h.s or 0),
-				(h.e or -1)
+				(h.ls or 0),
+				(h.cs or 0),
+				{
+					end_row = (h.le or h.ls or 0),
+					end_col = (h.ce or -1),
+					hl_group = h.g or 'Normal',
+				}
 			)
 		end
 		return
