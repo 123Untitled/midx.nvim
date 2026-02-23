@@ -121,7 +121,8 @@ local function on_message(msg)
 			table.insert(diags, {
 				lnum     = (d.l or 0),
 				col      = (d.s or 0),
-				end_col  = (d.e or d.cs or 0),
+				--end_col  = (d.e or d.cs or 0),
+				end_col  = math.max((d.e or 0), (d.s or 0) + 1),
 				message  = d.m or 'unknown error',
 				severity = vim.diagnostic.severity.ERROR,
 				source   = 'midx'
@@ -130,6 +131,7 @@ local function on_message(msg)
 		vim.diagnostic.set(ns_highlight, bufnr, diags, {})
 		return
 	end
+
 
 	-- Unknown message type
 	vim.notify(
