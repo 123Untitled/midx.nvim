@@ -5,11 +5,20 @@
 local events = require('midx.events')
 
 local method = {
-	update = 0,
-	play   = 1,
-	stop   = 2,
-	toggle = 3,
-	state  = 4
+	sync   = 0,
+	diff   = 1,
+
+	play   = 2,
+	stop   = 3,
+	toggle = 4,
+
+	attach = 5,
+	detach = 6,
+	force  = 7,
+	lock   = 8,
+	unlock = 9,
+
+	state  = 10
 }
 
 
@@ -58,7 +67,7 @@ function M.encode_update(payload)
 		error('protocol.encode_update: payload must be a string')
 	end
 
-	local header = make_header(method.update, #payload)
+	local header = make_header(method.sync, #payload)
 	return header .. payload
 end
 --function M.encode_update(content)
