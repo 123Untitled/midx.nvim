@@ -88,7 +88,7 @@ function M.attach(bufnr)
 	-- Set as active buffer
 	state.set('active_buffer', bufnr)
 
-	_log_buffer_changes(bufnr)
+	M._log_buffer_changes(bufnr)
 
 	vim.notify(
 		string.format('[midx] Attached to buffer #%d', bufnr),
