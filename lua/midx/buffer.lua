@@ -8,46 +8,64 @@ local state  = require('midx.state')
 local M = {}
 
 
+-- on bytes callback
+local function _on_bytes(_, buf, changedtick,
+						 -- start row of the changed text
+						 start_row,
+						 -- start column of the changed text
+						 start_col,
+						 -- byte offset of the changed text (from the start of the buffer)
+						 byte_offset,
+						 -- old end row of the changed text (offset from start row)
+						 old_end_row,
+						 -- old end column of the changed text (if old end row = 0, offset from start column)
+						 old_end_col,
+						 -- old end byte length of the changed text
+						 old_byte_len,
+						 -- new end row of the changed text (offset from start row)
+						 new_end_row,
+						 -- new end column of the changed text (if new end row = 0, offset from start column)
+						 new_end_col,
+						 -- new end byte length of the changed text
+						 new_byte_len)
+
+	-- ignorer si ce n'est plus le buffer actif
+	if buf ~= state.get('active_buffer') then
+		return true  -- true = detach
+	end
+
+	-- recuperer le contenu insere
+	local inserted = ''
+	if new_byte_len > 0 then
+		local end_row = start_row + new_end_row
+		local end_col = (new_end_row == 0)
+		and (start_col + new_end_col)
+		or new_end_col
+		local ok, lines = pcall(vim.api.nvim_buf_get_text,
+		buf, start_row, start_col, end_row, end_col, {})
+		if ok then
+			inserted = table.concat(lines, '\\n')
+		end
+	end
+
+	print(string.format(
+		'tick=%d pos=(%d,%d) byte=%d del=(%dr,%dc,%db) ins=(%dr,%dc,%db) [%s]',
+		changedtick,
+		start_row, start_col, byte_offset,
+		old_end_row, old_end_col, old_byte_len,
+		new_end_row, new_end_col, new_byte_len,
+		inserted
+	))
+
+end
+
 
 -- private function to log buffer changes (for debugging)
-function M._log_buffer_changes(bufnr)
+local function log_buffer_changes(bufnr)
 
-	vim.api.nvim_buf_attach(bufnr, false, {
+	options = { on_bytes = _on_bytes }
 
-		on_bytes = function(_, buf, changedtick,
-			start_row, start_col, byte_offset,
-			old_end_row, old_end_col, old_byte_len,
-			new_end_row, new_end_col, new_byte_len)
-
-			-- ignorer si ce n'est plus le buffer actif
-			if buf ~= state.get('active_buffer') then
-				return true  -- true = detach
-			end
-
-			-- recuperer le contenu insere
-			local inserted = ''
-			if new_byte_len > 0 then
-				local end_row = start_row + new_end_row
-				local end_col = (new_end_row == 0)
-				and (start_col + new_end_col)
-				or new_end_col
-				local ok, lines = pcall(vim.api.nvim_buf_get_text,
-				buf, start_row, start_col, end_row, end_col, {})
-				if ok then
-					inserted = table.concat(lines, '\\n')
-				end
-			end
-
-			print(string.format(
-				'tick=%d pos=(%d,%d) byte=%d del=(%dr,%dc,%db) ins=(%dr,%dc,%db) [%s]',
-				changedtick,
-				start_row, start_col, byte_offset,
-				old_end_row, old_end_col, old_byte_len,
-				new_end_row, new_end_col, new_byte_len,
-				inserted
-			))
-		end,
-	})
+	vim.api.nvim_buf_attach(bufnr, false, options)
 end
 
 
@@ -88,7 +106,7 @@ function M.attach(bufnr)
 	-- Set as active buffer
 	state.set('active_buffer', bufnr)
 
-	M._log_buffer_changes(bufnr)
+	log_buffer_changes(bufnr)
 
 	vim.notify(
 		string.format('[midx] Attached to buffer #%d', bufnr),
