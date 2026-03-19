@@ -9,7 +9,7 @@ local M = {}
 
 
 -- on bytes callback
-local function _on_bytes(_, buf, changedtick,
+local function _on_bytes(_, buf, changed_tick,
 						 -- start row of the changed text
 						 start_row,
 						 -- start column of the changed text
@@ -29,18 +29,19 @@ local function _on_bytes(_, buf, changedtick,
 						 -- new end byte length of the changed text
 						 new_byte_len)
 
-	-- ignorer si ce n'est plus le buffer actif
+
+	-- ignore changes if not the active buffer
 	if buf ~= state.get('active_buffer') then
-		return true  -- true = detach
+		-- true = detach
+		return true
 	end
 
 	-- recuperer le contenu insere
 	local inserted = ''
 	if new_byte_len > 0 then
 		local end_row = start_row + new_end_row
-		local end_col = (new_end_row == 0)
-		and (start_col + new_end_col)
-		or new_end_col
+		local end_col = (new_end_row == 0) and (start_col + new_end_col)
+											or new_end_col
 		local ok, lines = pcall(vim.api.nvim_buf_get_text,
 		buf, start_row, start_col, end_row, end_col, {})
 		if ok then
@@ -50,7 +51,7 @@ local function _on_bytes(_, buf, changedtick,
 
 	print(string.format(
 		'tick=%d pos=(%d,%d) byte=%d del=(%dr,%dc,%db) ins=(%dr,%dc,%db) [%s]',
-		changedtick,
+		changed_tick,
 		start_row, start_col, byte_offset,
 		old_end_row, old_end_col, old_byte_len,
 		new_end_row, new_end_col, new_byte_len,
@@ -62,9 +63,7 @@ end
 
 -- private function to log buffer changes (for debugging)
 local function log_buffer_changes(bufnr)
-
 	options = { on_bytes = _on_bytes }
-
 	vim.api.nvim_buf_attach(bufnr, false, options)
 end
 
@@ -74,6 +73,7 @@ end
 -- @param bufnr number - Buffer number to attach
 -- @return boolean - true if attached successfully
 function M.attach(bufnr)
+
 	if type(bufnr) ~= 'number' then
 		error('buffer.attach: bufnr must be a number')
 	end
@@ -106,7 +106,7 @@ function M.attach(bufnr)
 	-- Set as active buffer
 	state.set('active_buffer', bufnr)
 
-	log_buffer_changes(bufnr)
+	--log_buffer_changes(bufnr)
 
 	vim.notify(
 		string.format('[midx] Attached to buffer #%d', bufnr),

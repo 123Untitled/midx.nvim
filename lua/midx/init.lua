@@ -1,14 +1,11 @@
--- init.lua
--- Main orchestrator for MIDX Neovim plugin
--- Part of MIDX Neovim plugin refactored architecture (Layer 4: Integration)
 
-local events = require('midx.events')
-local state = require('midx.state')
+local events     = require('midx.events')
+local state      = require('midx.state')
 local connection = require('midx.connection')
-local protocol = require('midx.protocol')
-local buffer = require('midx.buffer')
+local protocol   = require('midx.protocol')
+local buffer     = require('midx.buffer')
 local statusline = require('midx.statusline')
-local indent = require('midx.indent')
+local indent     = require('midx.indent')
 
 local M = {}
 
