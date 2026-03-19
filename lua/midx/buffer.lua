@@ -3,9 +3,54 @@
 -- Part of MIDX Neovim plugin refactored architecture (Layer 2: Services)
 
 local events = require('midx.events')
-local state = require('midx.state')
+local state  = require('midx.state')
 
 local M = {}
+
+
+
+-- private function to log buffer changes (for debugging)
+function M._log_buffer_changes(bufnr)
+
+	vim.api.nvim_buf_attach(bufnr, false, {
+
+		on_bytes = function(_, buf, changedtick,
+			start_row, start_col, byte_offset,
+			old_end_row, old_end_col, old_byte_len,
+			new_end_row, new_end_col, new_byte_len)
+
+			-- ignorer si ce n'est plus le buffer actif
+			if buf ~= state.get('active_buffer') then
+				return true  -- true = detach
+			end
+
+			-- recuperer le contenu insere
+			local inserted = ''
+			if new_byte_len > 0 then
+				local end_row = start_row + new_end_row
+				local end_col = (new_end_row == 0)
+				and (start_col + new_end_col)
+				or new_end_col
+				local ok, lines = pcall(vim.api.nvim_buf_get_text,
+				buf, start_row, start_col, end_row, end_col, {})
+				if ok then
+					inserted = table.concat(lines, '\\n')
+				end
+			end
+
+			print(string.format(
+				'tick=%d pos=(%d,%d) byte=%d del=(%dr,%dc,%db) ins=(%dr,%dc,%db) [%s]',
+				changedtick,
+				start_row, start_col, byte_offset,
+				old_end_row, old_end_col, old_byte_len,
+				new_end_row, new_end_col, new_byte_len,
+				inserted
+			))
+		end,
+	})
+end
+
+
 
 --- Attach to a .midx buffer
 -- @param bufnr number - Buffer number to attach
@@ -42,6 +87,9 @@ function M.attach(bufnr)
 
 	-- Set as active buffer
 	state.set('active_buffer', bufnr)
+
+	_log_buffer_changes(bufnr)
+
 	vim.notify(
 		string.format('[midx] Attached to buffer #%d', bufnr),
 		vim.log.levels.INFO

@@ -242,6 +242,7 @@ local function setup_autocommands()
 
 		end
 	})
+
 end
 
 --- Setup user commands
