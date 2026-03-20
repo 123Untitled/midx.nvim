@@ -4,7 +4,6 @@ local state      = require('midx.state')
 local buffer     = require('midx.buffer')
 local protocol   = require('midx.protocol')
 local statusline = require('midx.statusline')
-local indent     = require('midx.indent')
 
 local M = {}
 
@@ -139,7 +138,7 @@ local function clear_animation_highlights(bufnr)
 end
 
 --- Setup autocommands for Neovim events
-local function setup_autocommands()
+local function setup_auto_commands()
 	local augroup = vim.api.nvim_create_augroup('MidxAutocmds', {clear = true})
 
 	-- FileType event: attach when opening .midx file
@@ -150,7 +149,6 @@ local function setup_autocommands()
 			local bufnr = args.buf
 			buffer.attach(bufnr, apply_message)
 			statusline.enable(bufnr)
-			indent.setup()
 			vim.bo[bufnr].commentstring = '~~ %s'
 		end
 	})
@@ -176,7 +174,8 @@ local function setup_autocommands()
 end
 
 --- Setup user commands
-local function setup_commands()
+local function setup_user_commands()
+
 	-- Toggle play/pause for current buffer
 	vim.api.nvim_create_user_command('MidxTogglePlay', function()
 		local bufnr = vim.api.nvim_get_current_buf()
@@ -223,8 +222,8 @@ function M.setup()
 	setup_event_listeners()
 
 	-- Setup Neovim integration
-	setup_autocommands()
-	setup_commands()
+	setup_auto_commands()
+	setup_user_commands()
 	setup_keybindings()
 end
 
