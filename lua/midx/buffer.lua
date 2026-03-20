@@ -1,84 +1,43 @@
 -- buffer.lua
--- Active .midx buffer lifecycle management
+-- Multi-buffer lifecycle management — one connection per buffer
 -- Part of MIDX Neovim plugin refactored architecture (Layer 2: Services)
 
-local events = require('midx.events')
-local state  = require('midx.state')
+local connection = require('midx.connection')
+local state      = require('midx.state')
+local protocol   = require('midx.protocol')
 
 local M = {}
 
+-- Active buffers: bufnr → { conn, decoder }
+local buffers = {}
 
--- on bytes callback
-local function _on_bytes(_, buf, changed_tick,
-						 -- start row of the changed text
-						 start_row,
-						 -- start column of the changed text
-						 start_col,
-						 -- byte offset of the changed text (from the start of the buffer)
-						 byte_offset,
-						 -- old end row of the changed text (offset from start row)
-						 old_end_row,
-						 -- old end column of the changed text (if old end row = 0, offset from start column)
-						 old_end_col,
-						 -- old end byte length of the changed text
-						 old_byte_len,
-						 -- new end row of the changed text (offset from start row)
-						 new_end_row,
-						 -- new end column of the changed text (if new end row = 0, offset from start column)
-						 new_end_col,
-						 -- new end byte length of the changed text
-						 new_byte_len)
-
-
-	-- ignore changes if not the active buffer
-	if buf ~= state.get('active_buffer') then
-		-- true = detach
-		return true
-	end
-
-	-- recuperer le contenu insere
-	local inserted = ''
-	if new_byte_len > 0 then
-		local end_row = start_row + new_end_row
-		local end_col = (new_end_row == 0) and (start_col + new_end_col)
-											or new_end_col
-		local ok, lines = pcall(vim.api.nvim_buf_get_text,
-		buf, start_row, start_col, end_row, end_col, {})
-		if ok then
-			inserted = table.concat(lines, '\\n')
-		end
-	end
-
-	print(string.format(
-		'tick=%d pos=(%d,%d) byte=%d del=(%dr,%dc,%db) ins=(%dr,%dc,%db) [%s]',
-		changed_tick,
-		start_row, start_col, byte_offset,
-		old_end_row, old_end_col, old_byte_len,
-		new_end_row, new_end_col, new_byte_len,
-		inserted
-	))
-
+--- Get the connection/decoder entry for a buffer
+-- @param bufnr number
+-- @return table|nil
+function M.get(bufnr)
+	return buffers[bufnr]
 end
 
-
--- private function to log buffer changes (for debugging)
-local function log_buffer_changes(bufnr)
-	options = { on_bytes = _on_bytes }
-	vim.api.nvim_buf_attach(bufnr, false, options)
+--- Get content of a buffer
+-- @param bufnr number - Buffer number
+-- @return string|nil
+function M.get_content(bufnr)
+	if not vim.api.nvim_buf_is_valid(bufnr) then
+		return nil
+	end
+	local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+	return table.concat(lines, '\n')
 end
-
-
 
 --- Attach to a .midx buffer
 -- @param bufnr number - Buffer number to attach
--- @return boolean - true if attached successfully
-function M.attach(bufnr)
-
+-- @param on_message function(bufnr, msg) - Message handler callback
+-- @return boolean
+function M.attach(bufnr, on_message)
 	if type(bufnr) ~= 'number' then
 		error('buffer.attach: bufnr must be a number')
 	end
 
-	-- Check if buffer is valid
 	if not vim.api.nvim_buf_is_valid(bufnr) then
 		vim.notify(
 			string.format('[midx] Cannot attach: buffer %d is invalid', bufnr),
@@ -87,148 +46,91 @@ function M.attach(bufnr)
 		return false
 	end
 
-	local current_buffer = state.get('active_buffer')
+	-- Already attached
+	if buffers[bufnr] then
+		return true
+	end
 
-	if current_buffer then
-		if current_buffer == bufnr then
-			-- Already attached to this buffer
-			return true
-		else
-			-- Another buffer is active
-			vim.notify(
-				string.format('[midx] Another buffer is already active (use :MidxSwitch)'),
-				vim.log.levels.WARN
-			)
-			return false
+	-- Create connection and decoder for this buffer
+	local conn = connection.new()
+	local decoder = protocol.new_decoder()
+
+	buffers[bufnr] = { conn = conn, decoder = decoder }
+
+	-- Wire up callbacks
+	conn.on_data = function(data)
+		decoder:decode(data, function(msg)
+			on_message(bufnr, msg)
+		end)
+	end
+
+	conn.on_connected = function()
+		state.set(bufnr, 'is_connected', true)
+		-- Send buffer content on connect
+		local content = M.get_content(bufnr)
+		if content then
+			conn:send(protocol.encode_update(content))
 		end
 	end
 
-	-- Set as active buffer
-	state.set('active_buffer', bufnr)
+	conn.on_disconnected = function()
+		state.set(bufnr, 'is_connected', false)
+		state.set(bufnr, 'is_playing', false)
+		decoder:reset()
+	end
 
-	--log_buffer_changes(bufnr)
+	-- Connect
+	conn:connect()
 
 	vim.notify(
 		string.format('[midx] Attached to buffer #%d', bufnr),
 		vim.log.levels.INFO
 	)
 
-	-- Emit attachment event
-	events.emit('buffer:attached', bufnr)
-
 	return true
 end
 
---- Detach from the currently active buffer
-function M.detach()
-	local bufnr = state.get('active_buffer')
-
-	if not bufnr then
-		return -- No active buffer
+--- Detach from a buffer
+-- @param bufnr number - Buffer number to detach
+function M.detach(bufnr)
+	local entry = buffers[bufnr]
+	if not entry then
+		return
 	end
+
+	entry.conn:disconnect()
+	buffers[bufnr] = nil
+	state.remove(bufnr)
 
 	vim.notify(
 		string.format('[midx] Detached from buffer #%d', bufnr),
 		vim.log.levels.INFO
 	)
-
-	-- Clear active buffer
-	state.set('active_buffer', nil)
-
-	-- Emit detachment event
-	events.emit('buffer:detached', bufnr)
 end
 
---- Switch to a different .midx buffer
--- @param bufnr number - Buffer number to switch to
--- @return boolean - true if switched successfully
-function M.switch(bufnr)
-	if type(bufnr) ~= 'number' then
-		error('buffer.switch: bufnr must be a number')
-	end
-
-	-- Validate buffer
-	if not vim.api.nvim_buf_is_valid(bufnr) then
-		vim.notify(
-			string.format('[midx] Cannot switch: buffer %d is invalid', bufnr),
-			vim.log.levels.ERROR
-		)
-		return false
-	end
-
-	-- Check if it's a .midx file
-	local path = vim.api.nvim_buf_get_name(bufnr)
-	if not path:match('%.midx$') then
-		vim.notify(
-			'[midx] Cannot switch: buffer is not a .midx file',
-			vim.log.levels.ERROR
-		)
-		return false
-	end
-
-	local current_buffer = state.get('active_buffer')
-
-	if current_buffer == bufnr then
-		vim.notify(
-			string.format('[midx] Already attached to buffer #%d', bufnr),
-			vim.log.levels.INFO
-		)
-		return true
-	end
-
-	-- Detach from current buffer (if any)
-	if current_buffer then
-		M.detach()
-	end
-
-	-- Attach to new buffer
-	return M.attach(bufnr)
-end
-
---- Get content of the active buffer
--- @return string|nil - Buffer content as string, or nil if no active buffer
-function M.get_content()
-	local bufnr = state.get('active_buffer')
-
-	if not bufnr then
-		return nil
-	end
-
-	-- Validate buffer still exists
-	if not vim.api.nvim_buf_is_valid(bufnr) then
-		vim.notify(
-			'[midx] Active buffer is no longer valid',
-			vim.log.levels.WARN
-		)
-		M.detach()
-		return nil
-	end
-
-	-- Read all lines
-	local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-	return table.concat(lines, '\n')
-end
-
---- Display status of active buffer
-function M.status()
-	local bufnr = state.get('active_buffer')
-	local is_connected = state.get('is_connected')
-
-	if not is_connected then
-		vim.notify('[midx] Not connected to server', vim.log.levels.INFO)
+--- Send an update for a buffer
+-- @param bufnr number - Buffer number
+function M.send_update(bufnr)
+	local entry = buffers[bufnr]
+	if not entry then
 		return
 	end
 
-	local status_msg = '[midx] Status: '
+	local content = M.get_content(bufnr)
+	if content then
+		entry.conn:send(protocol.encode_update(content))
+	end
+end
 
-	if bufnr then
-		local path = vim.api.nvim_buf_get_name(bufnr)
-		status_msg = status_msg .. string.format('Active buffer #%d (%s)', bufnr, path)
-	else
-		status_msg = status_msg .. 'No active buffer'
+--- Send toggle for a buffer
+-- @param bufnr number - Buffer number
+function M.send_toggle(bufnr)
+	local entry = buffers[bufnr]
+	if not entry then
+		return
 	end
 
-	vim.notify(status_msg, vim.log.levels.INFO)
+	entry.conn:send(protocol.encode_toggle())
 end
 
 return M

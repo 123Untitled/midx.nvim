@@ -1,9 +1,8 @@
 
 local events     = require('midx.events')
 local state      = require('midx.state')
-local connection = require('midx.connection')
-local protocol   = require('midx.protocol')
 local buffer     = require('midx.buffer')
+local protocol   = require('midx.protocol')
 local statusline = require('midx.statusline')
 local indent     = require('midx.indent')
 
@@ -13,32 +12,27 @@ local M = {}
 local ns_highlight = vim.api.nvim_create_namespace('midx')
 local ns_animation = vim.api.nvim_create_namespace('midx_animation')
 
-local uv = vim.loop
-local update_timer = nil
-local DEBOUNCE_MS = 40
-
+-- Animation marks per buffer: bufnr → { id → extmark_id }
 local animation_marks = {}
 
---- Handle incoming messages from server
+--- Handle incoming messages from server for a specific buffer
+-- @param bufnr number - Buffer this message belongs to
 -- @param msg table - Parsed JSON message
-local function on_message(msg)
+local function apply_message(bufnr, msg)
 	if not msg or type(msg) ~= 'table' then
 		return
 	end
 
-	-- Get the active .midx buffer (not the current buffer!)
-	local bufnr = state.get('active_buffer')
-
-	-- State update message (doesn't need a buffer)
+	-- State update message
 	if msg.type == "state" then
 		if msg.playing ~= nil then
-			state.set('is_playing', msg.playing)
+			state.set(bufnr, 'is_playing', msg.playing)
 		end
 		return
 	end
 
 	-- All other messages require a valid buffer
-	if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+	if not vim.api.nvim_buf_is_valid(bufnr) then
 		return
 	end
 
@@ -61,36 +55,34 @@ local function on_message(msg)
 		return
 	end
 
-
-	-- Animation highlight message (NEW IMPL with extmarks)
+	-- Animation highlight message
 	if msg.type == "animation" then
-
+		if not animation_marks[bufnr] then
+			animation_marks[bufnr] = {}
+		end
+		local marks = animation_marks[bufnr]
 
 		if msg.clear then
 			vim.api.nvim_buf_clear_namespace(bufnr, ns_animation, 0, -1)
-			animation_marks = {}
+			animation_marks[bufnr] = {}
+			marks = animation_marks[bufnr]
 		end
 
-
-		-- remove expired highlights
 		if msg.off then
 			for _, id in ipairs(msg.off) do
-				local mark = animation_marks[id]
+				local mark = marks[id]
 				if mark then
 					vim.api.nvim_buf_del_extmark(bufnr, ns_animation, mark)
-					animation_marks[id] = nil
+					marks[id] = nil
 				end
 			end
 		end
 
-		-- add new highlights
 		if msg.on then
 			for _, h in ipairs(msg.on) do
-				-- supprime l'ancien extmark si il existe déjà
-				local old = animation_marks[h.id]
+				local old = marks[h.id]
 				if old then
-					vim.api.nvim_buf_del_extmark(bufnr, ns_animation,
-					old)
+					vim.api.nvim_buf_del_extmark(bufnr, ns_animation, old)
 				end
 
 				local mark = vim.api.nvim_buf_set_extmark(
@@ -103,13 +95,12 @@ local function on_message(msg)
 						hl_group = h.g or 'Normal',
 					}
 				)
-				animation_marks[h.id] = mark
+				marks[h.id] = mark
 			end
 		end
 
 		return
 	end
-
 
 	-- Diagnostic message
 	if msg.type == "diagnostic" and msg.diagnostics then
@@ -118,7 +109,6 @@ local function on_message(msg)
 			table.insert(diags, {
 				lnum     = (d.l or 0),
 				col      = (d.s or 0),
-				--end_col  = (d.e or d.cs or 0),
 				end_col  = math.max((d.e or 0), (d.s or 0) + 1),
 				message  = d.m or 'unknown error',
 				severity = vim.diagnostic.severity.ERROR,
@@ -129,8 +119,6 @@ local function on_message(msg)
 		return
 	end
 
-
-	-- Unknown message type
 	vim.notify(
 		string.format('[midx] Unhandled message type: %s', tostring(msg.type)),
 		vim.log.levels.WARN
@@ -138,50 +126,16 @@ local function on_message(msg)
 end
 
 --- Handle state changes
--- @param key string - State key that changed
--- @param value any - New value
-local function on_state_changed(key, value)
-	-- Refresh statusline when any state changes
+local function on_state_changed(bufnr, key, value)
 	statusline.refresh()
 end
 
---- Handle buffer attachment
--- @param bufnr number - Buffer that was attached
-local function on_buffer_attached(bufnr)
-	-- Enable custom statusline
-	statusline.enable(bufnr)
-
-	-- Setup indentation
-	indent.setup()
-
-	-- Connect to server if not already connected
-	if not connection.is_connected() then
-		connection.connect()
-	else
-		-- Already connected, send buffer content immediately
-		local content = buffer.get_content()
-		if content then
-			local msg = protocol.encode_update(content)
-			connection.send(msg)
-		end
+--- Clear animation highlights for a buffer
+local function clear_animation_highlights(bufnr)
+	if vim.api.nvim_buf_is_valid(bufnr) then
+		vim.api.nvim_buf_clear_namespace(bufnr, ns_animation, 0, -1)
 	end
-end
-
---- Handle successful connection
-local function on_connection_established()
-	-- Send current buffer content when connected
-	local content = buffer.get_content()
-	if content then
-		local msg = protocol.encode_update(content)
-		connection.send(msg)
-	end
-end
-
---- Clear animation highlights
-local function clear_animation_highlights()
-	local bufnr = vim.api.nvim_get_current_buf()
-	vim.api.nvim_buf_clear_namespace(bufnr, ns_animation, 0, -1)
-	animation_marks = {}
+	animation_marks[bufnr] = {}
 end
 
 --- Setup autocommands for Neovim events
@@ -193,19 +147,21 @@ local function setup_autocommands()
 		group    = augroup,
 		pattern  = 'midx',
 		callback = function(args)
-			buffer.attach(args.buf)
-			vim.bo[args.buf].commentstring = '~~ %s'
+			local bufnr = args.buf
+			buffer.attach(bufnr, apply_message)
+			statusline.enable(bufnr)
+			indent.setup()
+			vim.bo[bufnr].commentstring = '~~ %s'
 		end
 	})
 
-	-- BufUnload event: detach when closing buffer
+	-- BufUnload event: detach buffer
 	vim.api.nvim_create_autocmd('BufUnload', {
 		group    = augroup,
 		pattern  = '*.midx',
 		callback = function(args)
-			if args.buf == state.get('active_buffer') then
-				buffer.detach()
-			end
+			buffer.detach(args.buf)
+			animation_marks[args.buf] = nil
 		end
 	})
 
@@ -214,55 +170,34 @@ local function setup_autocommands()
 		group    = augroup,
 		pattern  = '*.midx',
 		callback = function(args)
-			-- Only send if this is the active buffer
-			if args.buf ~= state.get('active_buffer') then
-				return
-			end
-
-			-- !debounce updates to avoid flooding the server
-			-- temporarily disabled for testing!:
-
-			--if not update_timer then
-			--	update_timer = uv.new_timer()
-			--end
-			--
-			--update_timer:stop()
-			--update_timer:start(DEBOUNCE_MS, 0, function()
-			--	vim.schedule(function()
-					local content = buffer.get_content()
-					if content then
-						local msg = protocol.encode_update(content)
-						connection.send(msg)
-					end
-			--	end)
-			--end)
-
+			buffer.send_update(args.buf)
 		end
 	})
-
 end
 
 --- Setup user commands
 local function setup_commands()
-	-- Toggle play/pause
+	-- Toggle play/pause for current buffer
 	vim.api.nvim_create_user_command('MidxTogglePlay', function()
-		connection.send(protocol.encode_toggle())
-		clear_animation_highlights()
+		local bufnr = vim.api.nvim_get_current_buf()
+		buffer.send_toggle(bufnr)
+		clear_animation_highlights(bufnr)
 	end, {
 		desc = 'Toggle midx play/pause',
 	})
 
-	-- Switch active buffer
-	vim.api.nvim_create_user_command('MidxSwitch', function()
-		local bufnr = vim.api.nvim_get_current_buf()
-		buffer.switch(bufnr)
-	end, {
-		desc = 'Switch active midx buffer',
-	})
-
 	-- Display status
 	vim.api.nvim_create_user_command('MidxStatus', function()
-		buffer.status()
+		local bufnr = vim.api.nvim_get_current_buf()
+		local connected = state.get(bufnr, 'is_connected')
+		local playing = state.get(bufnr, 'is_playing')
+		vim.notify(
+			string.format('[midx] Buffer #%d — connected: %s, playing: %s',
+				bufnr,
+				tostring(connected or false),
+				tostring(playing or false)),
+			vim.log.levels.INFO
+		)
 	end, {
 		desc = 'Display midx status',
 	})
@@ -270,37 +205,17 @@ end
 
 --- Setup keybindings
 local function setup_keybindings()
-	-- Spacebar to toggle play/pause
 	vim.api.nvim_set_keymap('n', '<space>', ':MidxTogglePlay<CR>',
 		{noremap = true, silent = true, desc = 'Toggle midx play/pause'})
 end
 
 --- Setup event listeners
 local function setup_event_listeners()
-	-- Listen to message events
-	events.on('message:received', on_message)
-
-	-- Listen to state changes
 	events.on('state:changed', on_state_changed)
-
-	-- Listen to buffer events
-	events.on('buffer:attached', on_buffer_attached)
-
-	-- Listen to connection events
-	events.on('connection:established', on_connection_established)
 end
 
 --- Main setup function
 function M.setup()
-	-- NOTE: Filetype registration moved to plugin/midx.lua
-	-- This ensures filetype is detected before lazy-loading
-	-- vim.filetype.add({
-	-- 	extension = {midx = 'midx'}
-	-- })
-
-	-- Initialize protocol layer
-	protocol.setup()
-
 	-- Initialize statusline
 	statusline.setup()
 
