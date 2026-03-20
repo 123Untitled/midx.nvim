@@ -1,18 +1,19 @@
 -- connection.lua
--- Unix socket connection factory — one instance per buffer
--- Part of MIDX Neovim plugin refactored architecture (Layer 2: Services)
 
 local M = {}
 
--- Connection configuration
-local SOCK_PATH = '/tmp/midx.sock'
-local RETRY_INTERVAL = 100 -- milliseconds
+
+-- socket path
+local SOCK_PATH      = '/tmp/midx.sock'
+-- retry interval in ms
+local RETRY_INTERVAL = 250
 
 local uv = vim.loop
 
 --- Create a new connection instance
 -- @return table - Connection instance with connect/disconnect/send methods
 function M.new()
+
 	local self = {
 		client = nil,
 		retry_timer = nil,
@@ -145,9 +146,9 @@ function M.new()
 		return true
 	end
 
-	function self:is_connected()
-		return self.client ~= nil
-	end
+	-- function self:is_connected()
+	-- 	return self.client ~= nil
+	-- end
 
 	return self
 end

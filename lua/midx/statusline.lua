@@ -1,8 +1,7 @@
 -- statusline.lua
 -- Winbar UI rendering — shows state of the current buffer
--- Part of MIDX Neovim plugin refactored architecture (Layer 3: UI)
 
-local state = require('midx.state')
+local session = require('midx.session')
 
 local M = {}
 
@@ -15,8 +14,8 @@ function M.build()
 	local bufnr = vim.api.nvim_get_current_buf()
 	local parts = {}
 
-	local connected = state.get(bufnr, 'is_connected')
-	local playing = state.get(bufnr, 'is_playing')
+	local connected = session.get_state(bufnr, 'is_connected')
+	local playing = session.get_state(bufnr, 'is_playing')
 
 	-- Connection status indicator
 	if connected then
@@ -36,12 +35,6 @@ function M.build()
 
 	-- Right align
 	table.insert(parts, "%=")
-
-	-- Error indicator
-	local error = state.get(bufnr, 'last_error')
-	if error then
-		table.insert(parts, "%#MidxError# ⚠ Error %#Normal#")
-	end
 
 	return table.concat(parts, "")
 end
@@ -67,8 +60,6 @@ function M.setup()
 	vim.api.nvim_set_hl(0, 'MidxDisconnected', {link = 'Error', default = true})
 	vim.api.nvim_set_hl(0, 'MidxPlaying', {link = 'Keyword', default = true})
 	vim.api.nvim_set_hl(0, 'MidxPaused', {link = 'Normal', default = true})
-	vim.api.nvim_set_hl(0, 'MidxInfo', {link = 'WarningMsg', default = true})
-	vim.api.nvim_set_hl(0, 'MidxError', {link = 'ErrorMsg', default = true})
 end
 
 --- Enable winbar for a buffer
@@ -87,19 +78,6 @@ function M.enable(bufnr)
 	local windows = vim.fn.win_findbuf(bufnr)
 	for _, winid in ipairs(windows) do
 		vim.wo[winid].winbar = '%!v:lua.require("midx.statusline").build()'
-	end
-end
-
---- Disable winbar for a buffer
--- @param bufnr number
-function M.disable(bufnr)
-	if enabled_buffers[bufnr] then
-		enabled_buffers[bufnr] = nil
-
-		local windows = vim.fn.win_findbuf(bufnr)
-		for _, winid in ipairs(windows) do
-			vim.wo[winid].winbar = nil
-		end
 	end
 end
 

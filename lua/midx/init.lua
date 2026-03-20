@@ -1,8 +1,6 @@
 
 local events     = require('midx.events')
-local state      = require('midx.state')
-local buffer     = require('midx.buffer')
-local protocol   = require('midx.protocol')
+local session    = require('midx.session')
 local statusline = require('midx.statusline')
 
 local M = {}
@@ -25,7 +23,7 @@ local function apply_message(bufnr, msg)
 	-- State update message
 	if msg.type == "state" then
 		if msg.playing ~= nil then
-			state.set(bufnr, 'is_playing', msg.playing)
+			session.set_state(bufnr, 'is_playing', msg.playing)
 		end
 		return
 	end
@@ -147,7 +145,7 @@ local function setup_auto_commands()
 		pattern  = 'midx',
 		callback = function(args)
 			local bufnr = args.buf
-			buffer.attach(bufnr, apply_message)
+			session.attach(bufnr, apply_message)
 			statusline.enable(bufnr)
 			vim.bo[bufnr].commentstring = '~~ %s'
 		end
@@ -158,7 +156,7 @@ local function setup_auto_commands()
 		group    = augroup,
 		pattern  = '*.midx',
 		callback = function(args)
-			buffer.detach(args.buf)
+			session.detach(args.buf)
 			animation_marks[args.buf] = nil
 		end
 	})
@@ -168,7 +166,7 @@ local function setup_auto_commands()
 		group    = augroup,
 		pattern  = '*.midx',
 		callback = function(args)
-			buffer.send_update(args.buf)
+			session.send_update(args.buf)
 		end
 	})
 end
@@ -179,7 +177,7 @@ local function setup_user_commands()
 	-- Toggle play/pause for current buffer
 	vim.api.nvim_create_user_command('MidxTogglePlay', function()
 		local bufnr = vim.api.nvim_get_current_buf()
-		buffer.send_toggle(bufnr)
+		session.send_toggle(bufnr)
 		clear_animation_highlights(bufnr)
 	end, {
 		desc = 'Toggle midx play/pause',
@@ -188,8 +186,8 @@ local function setup_user_commands()
 	-- Display status
 	vim.api.nvim_create_user_command('MidxStatus', function()
 		local bufnr = vim.api.nvim_get_current_buf()
-		local connected = state.get(bufnr, 'is_connected')
-		local playing = state.get(bufnr, 'is_playing')
+		local connected = session.get_state(bufnr, 'is_connected')
+		local playing = session.get_state(bufnr, 'is_playing')
 		vim.notify(
 			string.format('[midx] Buffer #%d — connected: %s, playing: %s',
 				bufnr,
