@@ -8,6 +8,7 @@ local M = {}
 -- Namespaces for highlights
 local ns_highlight = vim.api.nvim_create_namespace('midx')
 local ns_animation = vim.api.nvim_create_namespace('midx_animation')
+local ns_diag      = vim.api.nvim_create_namespace('midx_diag')
 
 -- Animation marks per buffer: bufnr → { id → extmark_id }
 local animation_marks = {}
@@ -112,7 +113,7 @@ local function apply_message(bufnr, msg)
 				source   = 'midx'
 			})
 		end
-		vim.diagnostic.set(ns_highlight, bufnr, diags, {})
+		vim.diagnostic.set(ns_diag, bufnr, diags, {})
 		return
 	end
 
