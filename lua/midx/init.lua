@@ -36,9 +36,17 @@ local function apply_message(bufnr, msg)
 
 	-- Syntax highlight message
 	if msg.type == "highlight" and msg.highlights then
+
+		vim.notify(
+			string.format('[midx] highlight: bufnr=%d count=%d',
+				bufnr, #msg.highlights),
+			vim.log.levels.INFO
+		)
+
 		vim.api.nvim_buf_clear_namespace(bufnr, ns_highlight, 0, -1)
 		for _, h in ipairs(msg.highlights) do
-			vim.api.nvim_buf_set_extmark(
+			local ok, err = pcall(
+				vim.api.nvim_buf_set_extmark,
 				bufnr,
 				ns_highlight,
 				(h.ls or 0),
@@ -49,6 +57,13 @@ local function apply_message(bufnr, msg)
 					hl_group = h.g or 'Normal',
 				}
 			)
+			if not ok then
+				vim.notify(
+					string.format('[midx] set_extmark failed: %s (l=%s c=%s..%s g=%s)',
+						tostring(err), tostring(h.ls), tostring(h.cs), tostring(h.ce), tostring(h.g)),
+					vim.log.levels.WARN
+				)
+			end
 		end
 		return
 	end
