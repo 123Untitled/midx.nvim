@@ -37,12 +37,6 @@ local function apply_message(bufnr, msg)
 	-- Syntax highlight message
 	if msg.type == "highlight" and msg.highlights then
 
-		vim.notify(
-			string.format('[midx] highlight: bufnr=%d count=%d',
-				bufnr, #msg.highlights),
-			vim.log.levels.INFO
-		)
-
 		vim.api.nvim_buf_clear_namespace(bufnr, ns_highlight, 0, -1)
 		for _, h in ipairs(msg.highlights) do
 			local ok, err = pcall(
