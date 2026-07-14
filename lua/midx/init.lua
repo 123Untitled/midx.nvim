@@ -160,7 +160,7 @@ local function setup_auto_commands()
 			local bufnr = args.buf
 			session.attach(bufnr, apply_message)
 			statusline.enable(bufnr)
-			vim.bo[bufnr].commentstring = '~~ %s'
+			vim.bo[bufnr].commentstring = '\\\\ %s'
 		end
 	})
 
