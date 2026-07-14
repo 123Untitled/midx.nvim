@@ -149,6 +149,9 @@ end
 local function setup_auto_commands()
 	local augroup = vim.api.nvim_create_augroup('MidxAutocmds', {clear = true})
 
+	-- Dernière b:changedtick envoyée, par buffer (voir TextChanged plus bas)
+	local last_tick = {}
+
 	-- FileType event: attach when opening .midx file
 	vim.api.nvim_create_autocmd('FileType', {
 		group    = augroup,
@@ -168,15 +171,23 @@ local function setup_auto_commands()
 		callback = function(args)
 			session.detach(args.buf)
 			animation_marks[args.buf] = nil
+			last_tick[args.buf] = nil
 		end
 	})
 
-	-- TextChanged events: send updates to server
+	-- TextChanged events: send buffer to server
+	-- <Esc> quittant le mode insertion redéclenche un TextChanged redondant ;
+	-- on déduplique via b:changedtick (n'incrémente que sur un vrai changement).
 	vim.api.nvim_create_autocmd({'TextChanged', 'TextChangedI'}, {
 		group    = augroup,
 		pattern  = '*.midx',
 		callback = function(args)
-			session.send_update(args.buf)
+			local tick = vim.b[args.buf].changedtick
+			if last_tick[args.buf] == tick then
+				return
+			end
+			last_tick[args.buf] = tick
+			session.send_buffer(args.buf)
 		end
 	})
 end

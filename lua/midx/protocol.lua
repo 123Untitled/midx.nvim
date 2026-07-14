@@ -5,7 +5,7 @@
 local M = {}
 
 local method = {
-	sync   = 0,
+	buffer = 0,
 	diff   = 1,
 
 	play   = 2,
@@ -36,15 +36,15 @@ local function make_header(method, length)
 	return magic .. u32_le(0) .. u32_le(method) .. u32_le(length)
 end
 
---- Encode UPDATE message
+--- Encode BUFFER message
 -- @param payload string - Buffer content to send
 -- @return string - Encoded message ready to send
-function M.encode_update(payload)
+function M.encode_buffer(payload)
 	if type(payload) ~= 'string' then
-		error('protocol.encode_update: payload must be a string')
+		error('protocol.encode_buffer: payload must be a string')
 	end
 
-	local header = make_header(method.sync, #payload)
+	local header = make_header(method.buffer, #payload)
 	return header .. payload
 end
 

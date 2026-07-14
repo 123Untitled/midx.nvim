@@ -96,7 +96,7 @@ function M.attach(bufnr, on_message)
 		M.set_state(bufnr, 'is_connected', true)
 		local content = M.get_content(bufnr)
 		if content then
-			conn:send(protocol.encode_update(content))
+			conn:send(protocol.encode_buffer(content))
 		end
 	end
 
@@ -133,9 +133,9 @@ function M.detach(bufnr)
 	)
 end
 
---- Send buffer content update
+--- Send buffer content
 -- @param bufnr number
-function M.send_update(bufnr)
+function M.send_buffer(bufnr)
 	local s = sessions[bufnr]
 	if not s then
 		return
@@ -143,7 +143,7 @@ function M.send_update(bufnr)
 
 	local content = M.get_content(bufnr)
 	if content then
-		s.conn:send(protocol.encode_update(content))
+		s.conn:send(protocol.encode_buffer(content))
 	end
 end
 
