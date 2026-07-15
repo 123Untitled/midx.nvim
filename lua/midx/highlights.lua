@@ -21,6 +21,12 @@ local anim = {}
 local FADE_STEPS = 12     -- niveaux du gradient
 local FRAME_MS   = 16     -- cadence du fade (~60 fps)
 local MAX_ALPHA  = 0.35   -- intensité du glow au onset (0..1)
+local FADE_GAMMA = 2.0    -- 1 = linéaire ; >1 = ease-out (chute vive + traîne) ; <1 = ease-in (tient puis lâche)
+
+--- courbe du fade : progression temporelle t∈[0,1] → progression du gradient ∈[0,1]
+local function curve(t)
+	return 1 - (1 - t) ^ FADE_GAMMA
+end
 
 -- Cache : group de sense → { nom de highlight par niveau }
 local gradients = {}
@@ -248,7 +254,7 @@ function M.animate(bufnr, msg)
 					cancel_mark(bufnr, marks, id); return
 				end
 				local lvl = math.min(FADE_STEPS,
-					math.floor((elapsed / dur_ms) * FADE_STEPS) + 1)
+					math.floor(curve(elapsed / dur_ms) * FADE_STEPS) + 1)
 				if lvl ~= last_lvl then
 					last_lvl = lvl
 					-- position ACTUELLE (nvim l'a ajustée aux éditions) → jamais out of range
