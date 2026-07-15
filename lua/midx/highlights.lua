@@ -42,15 +42,32 @@ local function blend(a, b, t)
 	return r * 65536 + g * 256 + bl
 end
 
+
+local function bg_color()
+      local n = vim.api.nvim_get_hl(0, { name = 'Normal' }).bg
+      if n then return n end
+
+      -- fallback 1 : ANSI 0 (le "noir" du colorscheme)
+      local t0 = vim.g.terminal_color_0
+      if type(t0) == 'string' then
+              local v = tonumber((t0:gsub('#', '')), 16)
+              if v then return v end
+      end
+
+      -- fallback 2 : gris selon dark/light
+      return (vim.o.background == 'light') and 0xeeeeee or 0x1e1e1e
+end
+
 --- construit (et cache) le gradient de bg pour un group de sense
 local function build_gradient(g)
+
 	local cached = gradients[g]
 	if cached then return cached end
 
 	local sense  = vim.api.nvim_get_hl(0, { name = g, link = false })
 	local normal = vim.api.nvim_get_hl(0, { name = 'Normal' })
 	local accent = sense.fg or 0xffffff
-	local bg     = normal.bg or 0x0CFA07
+	local bg     = normal.bg or bg_color()
 
 	local levels = {}
 	for k = 0, FADE_STEPS - 1 do
