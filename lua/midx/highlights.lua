@@ -18,7 +18,6 @@ local anim = {}
 -- -- Fade : gradient de groupes ------------------------------------------------
 
 -- Config (ajustable)
-local FADE_STEPS = 12     -- niveaux du gradient
 local FRAME_MS   = 16     -- cadence du fade (~60 fps)
 local MAX_ALPHA  = 0.35   -- intensité du glow au onset (0..1)
 local FADE_GAMMA = 0.5    -- 1 = linéaire ; >1 = ease-out (chute vive + traîne) ; <1 = ease-in (tient puis lâche)
@@ -27,9 +26,6 @@ local FADE_GAMMA = 0.5    -- 1 = linéaire ; >1 = ease-out (chute vive + traîne
 local function curve(t)
 	return 1 - (1 - t) ^ FADE_GAMMA
 end
-
--- Cache : group de sense → { nom de highlight par niveau }
-local gradients = {}
 
 --- extrait (r, g, b) d'un 0xRRGGBB
 local function rgb(c)
@@ -86,38 +82,15 @@ end
 local function resolve_bg()
 	local bg, definitive = sync_bg()
 	resolved_bg = bg
-	gradients   = {}                 -- fond changé → gradients à reconstruire
 	if not definitive then
 		query_terminal_bg()          -- affinera resolved_bg à la réponse
 	end
 end
 
---- construit (et cache) le gradient de bg pour un group de sense
-local function build_gradient(g)
-
-	local cached = gradients[g]
-	if cached then return cached end
-
-	local sense  = vim.api.nvim_get_hl(0, { name = g, link = false })
-	local accent = sense.fg or 0xffffff
-	local bg     = resolved_bg
-
-	local levels = {}
-	for k = 0, FADE_STEPS - 1 do
-		local alpha = MAX_ALPHA * (1 - k / (FADE_STEPS - 1))   -- MAX_ALPHA → 0
-		local name  = string.format('MidxFade_%s_%d', g, k)
-		vim.api.nvim_set_hl(0, name, { bg = blend(bg, accent, alpha) })
-		levels[k + 1] = name
-	end
-
-	gradients[g] = levels
-	return levels
-end
-
 -- Autocmds : re-setup au changement de colorscheme + capture de la réponse OSC
 local augroup = vim.api.nvim_create_augroup('MidxHighlightColors', { clear = true })
 
--- changement de colorscheme → tout re-résoudre (fond + gradients)
+-- changement de colorscheme → re-résoudre le fond (les fades le relisent à chaque frame)
 vim.api.nvim_create_autocmd('ColorScheme', {
 	group    = augroup,
 	callback = function() resolve_bg() end,
@@ -136,7 +109,6 @@ vim.api.nvim_create_autocmd('TermResponse', {
 		resolved_bg = tonumber(r:sub(1, 2), 16) * 65536
 		            + tonumber(g:sub(1, 2), 16) * 256
 		            + tonumber(b:sub(1, 2), 16)
-		gradients = {}               -- vrai fond connu → gradients à reconstruire
 	end,
 })
 
@@ -144,29 +116,78 @@ vim.api.nvim_create_autocmd('TermResponse', {
 resolve_bg()
 
 
--- -- Helpers internes ---------------------------------------------------------
+-- -- Timer global ------------------------------------------------------------
+-- Un seul timer pour tous les fades. À chaque frame : place à l'onset,
+-- recolore le group du token (fade continu), retire à l'échéance.
+-- On recolore le GROUP (pas l'extmark) → l'extmark n'est jamais retouché
+-- après pose → il suit les éditions et ne peut plus être "out of range".
 
---- Annule les timers + retire l'extmark d'un id
-local function cancel_mark(bufnr, marks, id)
-	local entry = marks[id]
-	if not entry then return end
+local fade_timer = nil
+
+--- retire un fade (extmark + registre)
+local function drop(bufnr, marks, id)
+	local f = marks[id]
+	if not f then return end
 	marks[id] = nil
-	for _, t in ipairs(entry.timers) do
-		t:stop()
-		if not t:is_closing() then t:close() end
-	end
-	if entry.mark and vim.api.nvim_buf_is_valid(bufnr) then
-		pcall(vim.api.nvim_buf_del_extmark, bufnr, ns_animation, entry.mark)
+	if f.mark and vim.api.nvim_buf_is_valid(bufnr) then
+		pcall(vim.api.nvim_buf_del_extmark, bufnr, ns_animation, f.mark)
 	end
 end
 
---- Annule toutes les animations d'un buffer
-local function cancel_all(bufnr)
-	local marks = anim[bufnr]
-	if not marks then return end
-	for id in pairs(marks) do
-		cancel_mark(bufnr, marks, id)
+--- reste-t-il des fades en cours ?
+local function any_active()
+	for _, marks in pairs(anim) do
+		if next(marks) then return true end
 	end
+	return false
+end
+
+--- un tick du timer global
+local function tick()
+	local now = vim.loop.hrtime()
+
+	for bufnr, marks in pairs(anim) do
+		if not vim.api.nvim_buf_is_valid(bufnr) then
+			anim[bufnr] = nil
+		else
+			for id, f in pairs(marks) do
+				if not f.mark then
+					-- pas encore posé : on attend l'onset (delay écoulé)
+					if now >= f.onset then
+						local ok, mark = pcall(vim.api.nvim_buf_set_extmark,
+							bufnr, ns_animation, f.l, f.s,
+							{ end_col = f.e, hl_group = f.group })
+						if ok then f.mark = mark else marks[id] = nil end
+					end
+				else
+					local elapsed = now - f.onset
+					if elapsed >= f.dur then
+						drop(bufnr, marks, id)
+					else
+						local a     = MAX_ALPHA * (1 - curve(elapsed / f.dur))
+						local color = blend(resolved_bg, f.accent, a)
+						if color ~= f.last then      -- évite les set_hl redondants
+							f.last = color
+							pcall(vim.api.nvim_set_hl, 0, f.group, { bg = color })
+						end
+					end
+				end
+			end
+		end
+	end
+
+	if not any_active() and fade_timer then
+		fade_timer:stop()
+		if not fade_timer:is_closing() then fade_timer:close() end
+		fade_timer = nil
+	end
+end
+
+--- démarre le timer global si besoin
+local function ensure_timer()
+	if fade_timer then return end
+	fade_timer = vim.loop.new_timer()
+	fade_timer:start(FRAME_MS, FRAME_MS, vim.schedule_wrap(tick))
 end
 
 
@@ -206,75 +227,34 @@ function M.animate(bufnr, msg)
 	local marks = anim[bufnr]
 
 	if msg.clear then
-		cancel_all(bufnr)
+		for id in pairs(marks) do drop(bufnr, marks, id) end
 		vim.api.nvim_buf_clear_namespace(bufnr, ns_animation, 0, -1)
 	end
 
 	if not msg.on then return end
 
-	local delay_ms = math.max(0, math.floor((msg.delay or 0) / 1e6))
+	local now   = vim.loop.hrtime()
+	local delay = msg.delay or 0        -- ns
 
 	for _, h in ipairs(msg.on) do
 		local id = h.id
-		cancel_mark(bufnr, marks, id)   -- re-trigger : on écrase le fade en cours
+		drop(bufnr, marks, id)          -- re-trigger : on repart de zéro
 
-		local entry = { mark = nil, timers = {} }
-		marks[id] = entry
-
-		local dur_ms = math.max(1, math.floor((h.d or 0) / 1e6))
-		local l, s, e, g = (h.l or 0), (h.s or 0), (h.e or -1), (h.g or 'Normal')
-
-		-- timer onset : après le delay global (synchro avec l'émission MIDI)
-		local t_on = vim.loop.new_timer()
-		entry.timers[#entry.timers + 1] = t_on
-		t_on:start(delay_ms, 0, vim.schedule_wrap(function()
-			if not vim.api.nvim_buf_is_valid(bufnr) then
-				cancel_mark(bufnr, marks, id); return
-			end
-			local levels = build_gradient(g)
-			local ok, mark = pcall(vim.api.nvim_buf_set_extmark,
-				bufnr, ns_animation, l, s,
-				{ end_col = e, hl_group = levels[1] })
-			if not ok then
-				cancel_mark(bufnr, marks, id); return
-			end
-			entry.mark = mark
-
-			-- fade : parcourt le gradient sur dur_ms, puis retire
-			local elapsed  = 0
-			local last_lvl = 1
-			local t_fade = vim.loop.new_timer()
-			entry.timers[#entry.timers + 1] = t_fade
-			t_fade:start(FRAME_MS, FRAME_MS, vim.schedule_wrap(function()
-				if not vim.api.nvim_buf_is_valid(bufnr) or not entry.mark then
-					cancel_mark(bufnr, marks, id); return
-				end
-				elapsed = elapsed + FRAME_MS
-				if elapsed >= dur_ms then
-					cancel_mark(bufnr, marks, id); return
-				end
-				local lvl = math.min(FADE_STEPS,
-					math.floor(curve(elapsed / dur_ms) * FADE_STEPS) + 1)
-				if lvl ~= last_lvl then
-					last_lvl = lvl
-					-- position ACTUELLE (nvim l'a ajustée aux éditions) → jamais out of range
-					local pos = vim.api.nvim_buf_get_extmark_by_id(
-						bufnr, ns_animation, entry.mark, { details = true })
-					if not pos or not pos[1] then
-						cancel_mark(bufnr, marks, id); return
-					end
-					pcall(vim.api.nvim_buf_set_extmark, bufnr, ns_animation,
-						pos[1], pos[2],
-						{
-							id       = entry.mark,
-							end_row  = pos[3] and pos[3].end_row,
-							end_col  = pos[3] and pos[3].end_col,
-							hl_group = levels[lvl],
-						})
-				end
-			end))
-		end))
+		local sense = vim.api.nvim_get_hl(0, { name = (h.g or 'Normal'), link = false })
+		marks[id] = {
+			l      = (h.l or 0),
+			s      = (h.s or 0),
+			e      = (h.e or -1),
+			accent = sense.fg or 0xffffff,
+			group  = string.format('MidxFade_%d_%d', bufnr, id),
+			onset  = now + delay,                    -- ns
+			dur    = math.max(1e6, h.d or 1e6),      -- ns, min 1 ms
+			mark   = nil,
+			last   = nil,
+		}
 	end
+
+	ensure_timer()
 end
 
 --- Diagnostics
@@ -298,7 +278,10 @@ end
 
 --- Efface les animations d'un buffer (toggle / stop côté client), buffer conservé
 function M.clear(bufnr)
-	cancel_all(bufnr)
+	local marks = anim[bufnr]
+	if marks then
+		for id in pairs(marks) do drop(bufnr, marks, id) end
+	end
 	if vim.api.nvim_buf_is_valid(bufnr) then
 		vim.api.nvim_buf_clear_namespace(bufnr, ns_animation, 0, -1)
 	end
@@ -307,7 +290,10 @@ end
 
 --- Nettoyage complet quand un buffer est déchargé
 function M.detach(bufnr)
-	cancel_all(bufnr)
+	local marks = anim[bufnr]
+	if marks then
+		for id in pairs(marks) do drop(bufnr, marks, id) end
+	end
 	anim[bufnr] = nil
 end
 
