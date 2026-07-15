@@ -151,27 +151,43 @@ local function tick()
 			anim[bufnr] = nil
 		else
 			for id, f in pairs(marks) do
-				if not f.mark then
-					-- pas encore posé : on attend l'onset (delay écoulé)
-					if now >= f.onset then
+
+				-- enveloppe = max de l'alpha sur les sources actives ; purge des expirées
+				local amax = -1
+				local i = 1
+				while i <= #f.sources do
+					local sc      = f.sources[i]
+					local elapsed = now - sc.onset
+					if elapsed >= sc.dur then
+						table.remove(f.sources, i)          -- source terminée
+					else
+						if elapsed >= 0 then                -- source démarrée (onset passé)
+							local a = MAX_ALPHA * (1 - curve(elapsed / sc.dur))
+							if a > amax then amax = a end
+						end
+						i = i + 1
+					end
+				end
+
+				if #f.sources == 0 then
+					drop(bufnr, marks, id)                  -- plus aucune source
+				elseif amax >= 0 then
+					-- au moins une source a démarré → pose (si besoin) + recolore
+					if not f.mark then
 						local ok, mark = pcall(vim.api.nvim_buf_set_extmark,
 							bufnr, ns_animation, f.l, f.s,
 							{ end_col = f.e, hl_group = f.group })
-						if ok then f.mark = mark else marks[id] = nil end
+						if ok then f.mark = mark else drop(bufnr, marks, id) end
 					end
-				else
-					local elapsed = now - f.onset
-					if elapsed >= f.dur then
-						drop(bufnr, marks, id)
-					else
-						local a     = MAX_ALPHA * (1 - curve(elapsed / f.dur))
-						local color = blend(resolved_bg, f.accent, a)
-						if color ~= f.last then      -- évite les set_hl redondants
+					if f.mark then
+						local color = blend(resolved_bg, f.accent, amax)
+						if color ~= f.last then             -- évite les set_hl redondants
 							f.last = color
 							pcall(vim.api.nvim_set_hl, 0, f.group, { bg = color })
 						end
 					end
 				end
+				-- sinon : sources encore en attente d'onset → on ne pose pas encore
 			end
 		end
 	end
@@ -238,19 +254,27 @@ function M.animate(bufnr, msg)
 
 	for _, h in ipairs(msg.on) do
 		local id = h.id
-		drop(bufnr, marks, id)          -- re-trigger : on repart de zéro
+		local f  = marks[id]
 
-		local sense = vim.api.nvim_get_hl(0, { name = (h.g or 'Normal'), link = false })
-		marks[id] = {
-			l      = (h.l or 0),
-			s      = (h.s or 0),
-			e      = (h.e or -1),
-			accent = sense.fg or 0xffffff,
-			group  = string.format('MidxFade_%d_%d', bufnr, id),
-			onset  = now + delay,                    -- ns
-			dur    = math.max(1e6, h.d or 1e6),      -- ns, min 1 ms
-			mark   = nil,
-			last   = nil,
+		if not f then
+			local sense = vim.api.nvim_get_hl(0, { name = (h.g or 'Normal'), link = false })
+			f = {
+				l       = (h.l or 0),
+				s       = (h.s or 0),
+				e       = (h.e or -1),
+				accent  = sense.fg or 0xffffff,
+				group   = string.format('MidxFade_%d_%d', bufnr, id),
+				mark    = nil,
+				last    = nil,
+				sources = {},
+			}
+			marks[id] = f
+		end
+
+		-- combine : on AJOUTE une source (on n'écrase pas les autres)
+		f.sources[#f.sources + 1] = {
+			onset = now + delay,                     -- ns
+			dur   = math.max(1e6, h.d or 1e6),       -- ns, min 1 ms
 		}
 	end
 
