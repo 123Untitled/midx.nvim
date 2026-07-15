@@ -19,7 +19,7 @@ local anim = {}
 
 -- Config (ajustable)
 local FRAME_MS   = 16     -- cadence du fade (~60 fps)
-local MAX_ALPHA  = 0.35   -- intensité du glow au onset (0..1)
+local MAX_ALPHA  = 0.75   -- intensité du glow au onset (0..1)
 local FADE_GAMMA = 0.5    -- 1 = linéaire ; >1 = ease-out (chute vive + traîne) ; <1 = ease-in (tient puis lâche)
 
 --- courbe du fade : progression temporelle t∈[0,1] → progression du gradient ∈[0,1]
