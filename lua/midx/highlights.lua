@@ -226,9 +226,13 @@ function M.animate(bufnr, msg)
 				cancel_mark(bufnr, marks, id); return
 			end
 			local levels = build_gradient(g)
-			entry.mark = vim.api.nvim_buf_set_extmark(
+			local ok, mark = pcall(vim.api.nvim_buf_set_extmark,
 				bufnr, ns_animation, l, s,
 				{ end_col = e, hl_group = levels[1] })
+			if not ok then
+				cancel_mark(bufnr, marks, id); return
+			end
+			entry.mark = mark
 
 			-- fade : parcourt le gradient sur dur_ms, puis retire
 			local elapsed  = 0
@@ -247,8 +251,20 @@ function M.animate(bufnr, msg)
 					math.floor((elapsed / dur_ms) * FADE_STEPS) + 1)
 				if lvl ~= last_lvl then
 					last_lvl = lvl
-					vim.api.nvim_buf_set_extmark(bufnr, ns_animation, l, s,
-						{ id = entry.mark, end_col = e, hl_group = levels[lvl] })
+					-- position ACTUELLE (nvim l'a ajustée aux éditions) → jamais out of range
+					local pos = vim.api.nvim_buf_get_extmark_by_id(
+						bufnr, ns_animation, entry.mark, { details = true })
+					if not pos or not pos[1] then
+						cancel_mark(bufnr, marks, id); return
+					end
+					pcall(vim.api.nvim_buf_set_extmark, bufnr, ns_animation,
+						pos[1], pos[2],
+						{
+							id       = entry.mark,
+							end_row  = pos[3] and pos[3].end_row,
+							end_col  = pos[3] and pos[3].end_col,
+							hl_group = levels[lvl],
+						})
 				end
 			end))
 		end))
