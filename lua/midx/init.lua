@@ -2,16 +2,9 @@
 local events     = require('midx.events')
 local session    = require('midx.session')
 local statusline = require('midx.statusline')
+local highlights = require('midx.highlights')
 
 local M = {}
-
--- Namespaces for highlights
-local ns_highlight = vim.api.nvim_create_namespace('midx')
-local ns_animation = vim.api.nvim_create_namespace('midx_animation')
-local ns_diag      = vim.api.nvim_create_namespace('midx_diag')
-
--- Animation marks per buffer: bufnr → { id → extmark_id }
-local animation_marks = {}
 
 --- Handle incoming messages from server for a specific buffer
 -- @param bufnr number - Buffer this message belongs to
@@ -34,115 +27,23 @@ local function apply_message(bufnr, msg)
 		return
 	end
 
-	-- Syntax highlight message
 	if msg.type == "highlight" and msg.highlights then
-
-		vim.api.nvim_buf_clear_namespace(bufnr, ns_highlight, 0, -1)
-		for _, h in ipairs(msg.highlights) do
-			local ok, err = pcall(
-				vim.api.nvim_buf_set_extmark,
-				bufnr,
-				ns_highlight,
-				(h.ls or 0),
-				(h.cs or 0),
-				{
-					end_row = (h.le or h.ls or 0),
-					end_col = (h.ce or -1),
-					hl_group = h.g or 'Normal',
-				}
-			)
-			if not ok then
-				vim.notify(
-					string.format('[midx] set_extmark failed: %s (l=%s c=%s..%s g=%s)',
-						tostring(err), tostring(h.ls), tostring(h.cs), tostring(h.ce), tostring(h.g)),
-					vim.log.levels.WARN
-				)
-			end
-		end
-		return
+		highlights.syntax(bufnr, msg.highlights)
+	elseif msg.type == "animation" then
+		highlights.animate(bufnr, msg)
+	elseif msg.type == "diagnostic" and msg.diagnostics then
+		highlights.diagnostics(bufnr, msg.diagnostics)
+	else
+		vim.notify(
+			string.format('[midx] Unhandled message type: %s', tostring(msg.type)),
+			vim.log.levels.WARN
+		)
 	end
-
-	-- Animation highlight message
-	if msg.type == "animation" then
-		if not animation_marks[bufnr] then
-			animation_marks[bufnr] = {}
-		end
-		local marks = animation_marks[bufnr]
-
-		if msg.clear then
-			vim.api.nvim_buf_clear_namespace(bufnr, ns_animation, 0, -1)
-			animation_marks[bufnr] = {}
-			marks = animation_marks[bufnr]
-		end
-
-		if msg.off then
-			for _, id in ipairs(msg.off) do
-				local mark = marks[id]
-				if mark then
-					vim.api.nvim_buf_del_extmark(bufnr, ns_animation, mark)
-					marks[id] = nil
-				end
-			end
-		end
-
-		if msg.on then
-			for _, h in ipairs(msg.on) do
-				local old = marks[h.id]
-				if old then
-					vim.api.nvim_buf_del_extmark(bufnr, ns_animation, old)
-				end
-
-				local mark = vim.api.nvim_buf_set_extmark(
-					bufnr,
-					ns_animation,
-					(h.l or 0),
-					(h.s or 0),
-					{
-						end_col = (h.e or -1),
-						hl_group = h.g or 'Normal',
-					}
-				)
-				marks[h.id] = mark
-			end
-		end
-
-		return
-	end
-
-	-- Diagnostic message
-	if msg.type == "diagnostic" and msg.diagnostics then
-		local diags = {}
-		for _, d in ipairs(msg.diagnostics) do
-			table.insert(diags, {
-				lnum     = (d.l or 0),
-				col      = (d.s or 0),
-				end_col  = math.max((d.e or 0), (d.s or 0) + 1),
-				message  = d.m or 'unknown error',
-				severity = vim.diagnostic.severity.ERROR,
-				source   = 'midx'
-			})
-		end
-		vim.diagnostic.set(ns_diag, bufnr, diags, {})
-		return
-	end
-
-	vim.notify(
-		string.format('[midx] Unhandled message type: %s', tostring(msg.type)),
-		vim.log.levels.WARN
-	)
 end
 
 --- Handle state changes
 local function on_state_changed(bufnr, key, value)
 	statusline.refresh()
-end
-
---- Clear animation highlights for a buffer
-local function clear_animation_highlights(bufnr)
-	if vim.api.nvim_buf_is_valid(bufnr) then
-		vim.api.nvim_buf_clear_namespace(bufnr, ns_animation, 0, -1)
-	end
-	animation_marks[bufnr] = {}
 end
 
 --- Setup autocommands for Neovim events
@@ -170,7 +71,7 @@ local function setup_auto_commands()
 		pattern  = '*.midx',
 		callback = function(args)
 			session.detach(args.buf)
-			animation_marks[args.buf] = nil
+			highlights.detach(args.buf)
 			last_tick[args.buf] = nil
 		end
 	})
@@ -199,7 +100,7 @@ local function setup_user_commands()
 	vim.api.nvim_create_user_command('MidxTogglePlay', function()
 		local bufnr = vim.api.nvim_get_current_buf()
 		session.send_toggle(bufnr)
-		clear_animation_highlights(bufnr)
+		highlights.clear(bufnr)
 	end, {
 		desc = 'Toggle midx play/pause',
 	})
