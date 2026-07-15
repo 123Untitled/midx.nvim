@@ -43,19 +43,47 @@ local function blend(a, b, t)
 end
 
 
-local function bg_color()
-      local n = vim.api.nvim_get_hl(0, { name = 'Normal' }).bg
-      if n then return n end
+-- -- Résolution du fond ---------------------------------------------------------
+-- Le fond du buffer est la cible du fade. Priorité :
+--   Normal.bg (définitif)  →  OSC 11 (vrai fond terminal, async)
+-- avec terminal_color_0 / gris en PROVISOIRE tant que l'OSC n'a pas répondu.
 
-      -- fallback 1 : ANSI 0 (le "noir" du colorscheme)
-      local t0 = vim.g.terminal_color_0
-      if type(t0) == 'string' then
-              local v = tonumber((t0:gsub('#', '')), 16)
-              if v then return v end
-      end
+local resolved_bg = 0x1e1e1e   -- meilleure valeur connue (affinée par resolve_bg)
+local osc_pending = false
 
-      -- fallback 2 : gris selon dark/light
-      return (vim.o.background == 'light') and 0xeeeeee or 0x1e1e1e
+--- valeur synchrone ; retourne (couleur, definitif)
+--   definitif = true → Normal.bg posé, pas besoin d'OSC
+local function sync_bg()
+	local n = vim.api.nvim_get_hl(0, { name = 'Normal' }).bg
+	if n then return n, true end
+
+	local t0 = vim.g.terminal_color_0            -- ANSI 0 du colorscheme
+	if type(t0) == 'string' then
+		local v = tonumber((t0:gsub('#', '')), 16)
+		if v then return v, false end
+	end
+
+	return (vim.o.background == 'light') and 0xeeeeee or 0x1e1e1e, false
+end
+
+--- interroge le terminal (OSC 11) ; la réponse arrive via TermResponse
+local function query_terminal_bg()
+	osc_pending = true
+	local ok = pcall(function()
+		io.stdout:write('\027]11;?\027\\')
+		io.stdout:flush()
+	end)
+	if not ok then osc_pending = false end
+end
+
+--- (re)résout le fond : sync tout de suite, OSC si Normal.bg absent
+local function resolve_bg()
+	local bg, definitive = sync_bg()
+	resolved_bg = bg
+	gradients   = {}                 -- fond changé → gradients à reconstruire
+	if not definitive then
+		query_terminal_bg()          -- affinera resolved_bg à la réponse
+	end
 end
 
 --- construit (et cache) le gradient de bg pour un group de sense
@@ -65,9 +93,8 @@ local function build_gradient(g)
 	if cached then return cached end
 
 	local sense  = vim.api.nvim_get_hl(0, { name = g, link = false })
-	local normal = vim.api.nvim_get_hl(0, { name = 'Normal' })
 	local accent = sense.fg or 0xffffff
-	local bg     = normal.bg or bg_color()
+	local bg     = resolved_bg
 
 	local levels = {}
 	for k = 0, FADE_STEPS - 1 do
@@ -81,11 +108,34 @@ local function build_gradient(g)
 	return levels
 end
 
--- reconstruit les gradients quand le colorscheme change
+-- Autocmds : re-setup au changement de colorscheme + capture de la réponse OSC
+local augroup = vim.api.nvim_create_augroup('MidxHighlightColors', { clear = true })
+
+-- changement de colorscheme → tout re-résoudre (fond + gradients)
 vim.api.nvim_create_autocmd('ColorScheme', {
-	group    = vim.api.nvim_create_augroup('MidxHighlightColors', { clear = true }),
-	callback = function() gradients = {} end,
+	group    = augroup,
+	callback = function() resolve_bg() end,
 })
+
+-- réponse du terminal à notre requête OSC 11 (vrai fond)
+vim.api.nvim_create_autocmd('TermResponse', {
+	group    = augroup,
+	callback = function(args)
+		if not osc_pending then return end
+		local seq = (type(args.data) == 'table' and args.data.sequence) or args.data or ''
+		local r, g, b = tostring(seq):match('11;rgb:(%x+)/(%x+)/(%x+)')
+		if not r then return end
+		osc_pending = false
+		-- composantes sur 16 bits (4 hex) → on garde les 2 premiers
+		resolved_bg = tonumber(r:sub(1, 2), 16) * 65536
+		            + tonumber(g:sub(1, 2), 16) * 256
+		            + tonumber(b:sub(1, 2), 16)
+		gradients = {}               -- vrai fond connu → gradients à reconstruire
+	end,
+})
+
+-- résolution initiale (l'autocmd TermResponse est déjà posé pour capter la réponse)
+resolve_bg()
 
 
 -- -- Helpers internes ---------------------------------------------------------
