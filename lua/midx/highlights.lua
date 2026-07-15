@@ -50,7 +50,7 @@ local function build_gradient(g)
 	local sense  = vim.api.nvim_get_hl(0, { name = g, link = false })
 	local normal = vim.api.nvim_get_hl(0, { name = 'Normal' })
 	local accent = sense.fg or 0xffffff
-	local bg     = normal.bg or 0x000000
+	local bg     = normal.bg or 0x0CFA07
 
 	local levels = {}
 	for k = 0, FADE_STEPS - 1 do
