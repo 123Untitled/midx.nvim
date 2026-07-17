@@ -135,6 +135,9 @@ end
 
 --- Main setup function
 function M.setup()
+	-- Initialize highlights (background resolution + animation engine)
+	highlights.setup()
+
 	-- Initialize statusline
 	statusline.setup()
 
