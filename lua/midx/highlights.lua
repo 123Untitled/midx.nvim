@@ -63,6 +63,7 @@ end
 M.animate = animation.animate
 M.clear   = animation.clear
 M.detach  = animation.detach
+M.sync    = animation.sync
 
 --- Initialisation (appelée depuis init.lua M.setup) : fond + moteur
 function M.setup()

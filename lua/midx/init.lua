@@ -1,7 +1,6 @@
 
 local events     = require('midx.events')
 local session    = require('midx.session')
-local statusline = require('midx.statusline')
 local highlights = require('midx.highlights')
 
 local M = {}
@@ -22,6 +21,12 @@ local function apply_message(bufnr, msg)
 		return
 	end
 
+	-- Clock sync (connection-level, no buffer needed) : capture l'offset
+	if msg.type == "sync" then
+		highlights.sync(msg.now)
+		return
+	end
+
 	-- All other messages require a valid buffer
 	if not vim.api.nvim_buf_is_valid(bufnr) then
 		return
@@ -29,7 +34,7 @@ local function apply_message(bufnr, msg)
 
 	if msg.type == "highlight" and msg.highlights then
 		highlights.syntax(bufnr, msg.highlights)
-	elseif msg.type == "animation" then
+	elseif msg.type == "live" then
 		highlights.animate(bufnr, msg)
 	elseif msg.type == "diagnostic" and msg.diagnostics then
 		highlights.diagnostics(bufnr, msg.diagnostics)
@@ -43,7 +48,10 @@ end
 
 --- Handle state changes
 local function on_state_changed(bufnr, key, value)
-	statusline.refresh()
+	-- au stop (ou déconnexion) : le client nettoie tous les highlights dynamiques
+	if key == 'is_playing' and not value then
+		highlights.clear(bufnr)
+	end
 end
 
 --- Setup autocommands for Neovim events
@@ -60,7 +68,6 @@ local function setup_auto_commands()
 		callback = function(args)
 			local bufnr = args.buf
 			session.attach(bufnr, apply_message)
-			statusline.enable(bufnr)
 			vim.bo[bufnr].commentstring = '\\\\ %s'
 		end
 	})
@@ -137,9 +144,6 @@ end
 function M.setup()
 	-- Initialize highlights (background resolution + animation engine)
 	highlights.setup()
-
-	-- Initialize statusline
-	statusline.setup()
 
 	-- Setup event listeners
 	setup_event_listeners()
