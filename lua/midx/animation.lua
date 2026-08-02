@@ -10,8 +10,10 @@
 -- Timer : ne rend plus rien — il PURGE les sources expirées et FORCE un redraw
 --   (pump) tant qu'il reste des fades. S'arrête à count == 0.
 --
--- Pas de suivi d'éditions : le serveur re-pousse tous les highlights ; au
---   changement de buffer le plugin coupe tout (clear).
+-- Suivi d'éditions léger : l'id (index de token) est régénéré à chaque reparse,
+--   donc la COORDONNÉE de chaque message fait autorité — M.animate resynchronise
+--   position + rowmap à la réception (ancre = start ; l'extension de range suit).
+--   Reload complet à venir → clear total ; cette resync reste le filet de sécurité.
 --
 -- Registre : anim[bufnr][id] = { l, s, e, g, accent, sources = {{onset,dur},…} }
 -- Index ligne : rowmap[bufnr][row] = { [id]=true }   (lookup O(1) dans on_line)
@@ -27,7 +29,7 @@ local ns = vim.api.nvim_create_namespace('midx_animation')
 local FRAME_MS  = 16      -- ~60 fps : fluidité du fade + granularité du retard d'onset
 local MAX_ALPHA = 0.50    -- intensité par source au onset (0..1) ; le screen empile au-delà
 local STEPS     = 128     -- paliers du gradient fond→accent (quantif. invisible à ce compte)
-local PRIORITY  = 2000     -- au-dessus de la couche syntaxe (composite : fg statique + bg fade)
+local PRIORITY  = 1000     -- au-dessus de la couche syntaxe (composite : fg statique + bg fade)
 -- Enveloppe du fade (fractions de la durée) : montée → pic → fade
 local ATTACK  = 0.00      -- montée 0 → pic (0 = pop instantané)
 local PLATEAU = 0.33      -- maintien au pic avant de fader
@@ -275,23 +277,34 @@ function M.animate(bufnr, msg)
 		-- skip les outdated : fade ENTIÈREMENT dans le passé (traité en retard).
 		-- partiellement actif ou futur → gardé (combined_alpha gère la queue).
 		if onset + dur >= now then
+			-- id = clé faible (index de token, régénéré à chaque reparse) : la
+			-- coordonnée entrante fait autorité, on la synchronise à chaque réception.
 			local id = h.id
-			local f  = marks[id]
+			local nl, ncs, nce = (h.l or 0), (h.s or 0), (h.e or -1)
+			local g = h.g or 'Normal'
+			local f = marks[id]
 
 			if not f then
-				local g = h.g or 'Normal'
-				f = {
-					l       = (h.l or 0),
-					s       = (h.s or 0),
-					e       = (h.e or -1),
-					g       = g,                          -- sense (pour refresh accent)
-					accent  = accent_of(g),
-					sources = {},
-				}
+				f = { l = nl, s = ncs, e = nce, g = g, accent = accent_of(g), sources = {} }
 				marks[id] = f
-				rows[f.l] = rows[f.l] or {}
-				rows[f.l][id] = true
+				rows[nl] = rows[nl] or {}
+				rows[nl][id] = true
 				count = count + 1
+			else
+				-- ancre (l,s) identique → même token qui s'est étendu : on GARDE le stack.
+				-- ancre différente → l'id a dérivé vers un autre token : on repart propre.
+				if f.l ~= nl or f.s ~= ncs then
+					if rows[f.l] then
+						rows[f.l][id] = nil
+						if next(rows[f.l]) == nil then rows[f.l] = nil end
+					end
+					f.l, f.s = nl, ncs
+					rows[nl] = rows[nl] or {}
+					rows[nl][id] = true
+					f.sources = {}                        -- ancre changée → reset des fades hérités
+				end
+				f.e = nce                                 -- l'extension de range suit toujours
+				if g ~= f.g then f.g = g; f.accent = accent_of(g) end
 			end
 
 			-- combine : on AJOUTE une source (on n'écrase pas les autres)
@@ -306,8 +319,7 @@ end
 --  même machine (socket Unix) → offset constant, une mesure au connect suffit.
 -- @param server_now number - host_time::now().to_ns() du serveur
 function M.sync(server_now)
-	local client_now = uv.hrtime()
-	offset = client_now - (server_now or 0)
+	offset = uv.hrtime() - (server_now or 0)
 end
 
 --- Efface les animations d'un buffer (buffer conservé)

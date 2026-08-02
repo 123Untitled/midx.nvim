@@ -4,7 +4,8 @@
 
 local M = {}
 
-local method = {
+-- miroir de pc::control (control.h) — must match
+local control = {
 	buffer = 0,
 	diff   = 1,
 
@@ -12,13 +13,7 @@ local method = {
 	stop   = 3,
 	toggle = 4,
 
-	attach = 5,
-	detach = 6,
-	force  = 7,
-	lock   = 8,
-	unlock = 9,
-
-	state  = 10
+	state  = 5,
 }
 
 local function u32_le(n)
@@ -32,26 +27,53 @@ end
 
 local magic = 'MIDX'
 
-local function make_header(method, length)
-	return magic .. u32_le(0) .. u32_le(method) .. u32_le(length)
+-- header : magic(4) + generation(4) + opcode(4) + length(4)
+-- generation = génération courante du client (0 tant que le décodeur
+-- binaire ne l'a pas apprise du serveur)
+local function make_header(opcode, length, generation)
+	return magic .. u32_le(generation or 0) .. u32_le(opcode) .. u32_le(length)
 end
 
 --- Encode BUFFER message
 -- @param payload string - Buffer content to send
+-- @param generation number|nil - Client's current generation
 -- @return string - Encoded message ready to send
-function M.encode_buffer(payload)
+function M.encode_buffer(payload, generation)
 	if type(payload) ~= 'string' then
 		error('protocol.encode_buffer: payload must be a string')
 	end
 
-	local header = make_header(method.buffer, #payload)
+	local header = make_header(control.buffer, #payload, generation)
 	return header .. payload
 end
 
 --- Encode TOGGLE message
+-- @param generation number|nil - Client's current generation
 -- @return string - Encoded message ready to send
-function M.encode_toggle()
-	return make_header(method.toggle, 0)
+function M.encode_toggle(generation)
+	return make_header(control.toggle, 0, generation)
+end
+
+--- Encode DIFF message
+-- Payload mirrors pc::diff: 6 x u32 LE (revision, offset, removed, added,
+-- cursor_row, cursor_col) followed by the inserted text.
+-- @param d table - Byte-splice record { offset, removed, added, text }
+-- @param revision number - Monotonic counter (a BUFFER send resets it to 0)
+-- @param cursor_row number - Cursor row, 0-based
+-- @param cursor_col number - Cursor col, 0-based
+-- @param generation number|nil - Client's current generation
+-- @return string - Encoded message ready to send
+function M.encode_diff(d, revision, cursor_row, cursor_col, generation)
+	local payload = u32_le(revision)
+	             .. u32_le(d.offset)
+	             .. u32_le(d.removed)
+	             .. u32_le(d.added)
+	             .. u32_le(cursor_row)
+	             .. u32_le(cursor_col)
+	             .. d.text
+
+	local header = make_header(control.diff, #payload, generation)
+	return header .. payload
 end
 
 --- Create a new decoder instance (one per connection)

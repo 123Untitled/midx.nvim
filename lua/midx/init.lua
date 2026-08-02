@@ -48,9 +48,13 @@ end
 
 --- Handle state changes
 local function on_state_changed(bufnr, key, value)
-	-- au stop (ou déconnexion) : le client nettoie tous les highlights dynamiques
+	-- au stop (ou déconnexion) : coupe les highlights dynamiques (fades)
 	if key == 'is_playing' and not value then
 		highlights.clear(bufnr)
+	end
+	-- à la déconnexion : efface la syntaxe → retour au fond "Comment"
+	if key == 'is_connected' and not value then
+		highlights.clear_syntax(bufnr)
 	end
 end
 
@@ -68,6 +72,7 @@ local function setup_auto_commands()
 		callback = function(args)
 			local bufnr = args.buf
 			session.attach(bufnr, apply_message)
+			highlights.dim(bufnr)                 -- fond "Comment" par défaut (avant connexion)
 			vim.bo[bufnr].commentstring = '\\\\ %s'
 		end
 	})
@@ -96,6 +101,7 @@ local function setup_auto_commands()
 			end
 			last_tick[args.buf] = tick
 			session.send_buffer(args.buf)
+			highlights.dim(args.buf)              -- re-couvre le nouveau contenu en "Comment"
 		end
 	})
 end

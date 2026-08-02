@@ -5,10 +5,11 @@
 local connection = require('midx.connection')
 local protocol   = require('midx.protocol')
 local events     = require('midx.events')
+local diff       = require('midx.diff')
 
 local M = {}
 
--- Session registry: bufnr → { conn, decoder, is_connected, is_playing }
+-- Session registry: bufnr → { conn, decoder, is_connected, is_playing, revision }
 local sessions = {}
 
 
@@ -83,6 +84,12 @@ function M.attach(bufnr, on_message)
 		decoder      = decoder,
 		is_connected = false,
 		is_playing   = false,
+		revision     = 0,
+		-- generation : version du monde source, frappée par le client —
+		-- incrémentée à CHAQUE envoi mutant (buffer et diff), adoptée par
+		-- le serveur qui la répercute dans ses updates. Subsume revision
+		-- à terme (chaîne +1 validée côté serveur).
+		generation   = 0,
 	}
 
 	-- Wire up callbacks
@@ -96,7 +103,12 @@ function M.attach(bufnr, on_message)
 		M.set_state(bufnr, 'is_connected', true)
 		local content = M.get_content(bufnr)
 		if content then
-			conn:send(protocol.encode_buffer(content))
+			local s = sessions[bufnr]
+			if s then
+				s.revision   = 0
+				s.generation = s.generation + 1
+			end
+			conn:send(protocol.encode_buffer(content, s and s.generation))
 		end
 	end
 
@@ -105,6 +117,54 @@ function M.attach(bufnr, on_message)
 		M.set_state(bufnr, 'is_playing', false)
 		decoder:reset()
 	end
+
+	-- Byte-level change tracking → DIFF messages.
+	-- Runs alongside the full-buffer send (TextChanged) during the
+	-- validation phase: the server can cross-check its spliced shadow
+	-- copy against each incoming BUFFER message.
+	vim.api.nvim_buf_attach(bufnr, false, {
+
+		on_bytes = function(_, buf, _tick,
+		                    start_row, start_col, byte_offset,
+		                    _old_end_row, _old_end_col, old_len,
+		                    new_end_row, new_end_col, new_len)
+
+			local s = sessions[buf]
+
+			-- session gone → returning true detaches this callback
+			if not s then
+				return true
+			end
+
+			-- offline edits are dropped: reconnection resends the
+			-- full buffer, which resynchronizes the sequence
+			if not s.is_connected then
+				return
+			end
+
+			local d = diff.from_bytes(buf, start_row, start_col, byte_offset,
+				old_len, new_end_row, new_end_col, new_len)
+			if not d then
+				return
+			end
+
+			-- pas de generation++ ici : le serveur n'applique pas encore
+			-- les diffs (aucun monde créé) — le jour où il les appliquera,
+			-- l'incrément migrera du buffer vers le diff
+			s.revision = s.revision + 1
+			local row, col = diff.cursor(buf)
+			s.conn:send(protocol.encode_diff(d, s.revision, row, col, s.generation))
+		end,
+
+		-- :e! and friends rewrite the buffer wholesale — resync with a
+		-- full BUFFER send (which resets the revision sequence)
+		on_reload = function(_, buf)
+			if not sessions[buf] then
+				return true
+			end
+			M.send_buffer(buf)
+		end,
+	})
 
 	conn:connect()
 
@@ -134,6 +194,7 @@ function M.detach(bufnr)
 end
 
 --- Send buffer content
+-- A full-buffer send resets the diff revision sequence on both sides.
 -- @param bufnr number
 function M.send_buffer(bufnr)
 	local s = sessions[bufnr]
@@ -143,7 +204,9 @@ function M.send_buffer(bufnr)
 
 	local content = M.get_content(bufnr)
 	if content then
-		s.conn:send(protocol.encode_buffer(content))
+		s.revision   = 0
+		s.generation = s.generation + 1
+		s.conn:send(protocol.encode_buffer(content, s.generation))
 	end
 end
 
@@ -155,7 +218,7 @@ function M.send_toggle(bufnr)
 		return
 	end
 
-	s.conn:send(protocol.encode_toggle())
+	s.conn:send(protocol.encode_toggle(s.generation))
 end
 
 return M
