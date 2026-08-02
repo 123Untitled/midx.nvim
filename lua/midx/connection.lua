@@ -8,7 +8,7 @@ local SOCK_PATH      = '/tmp/midx.sock'
 -- retry interval in ms
 local RETRY_INTERVAL = 250
 
-local uv = vim.loop
+local uv = vim.uv or vim.loop
 
 --- Create a new connection instance
 -- @return table - Connection instance with connect/disconnect/send methods
@@ -145,10 +145,6 @@ function M.new()
 
 		return true
 	end
-
-	-- function self:is_connected()
-	-- 	return self.client ~= nil
-	-- end
 
 	return self
 end

@@ -22,6 +22,13 @@ local M = {}
 function M.from_bytes(buf, start_row, start_col, byte_offset,
                       old_len, new_end_row, new_end_col, new_len)
 
+	-- pure deletion: nothing was inserted, so there is no text to read.
+	-- Reading it anyway would go out of bounds when the deleted span was the
+	-- buffer's last line (start_row no longer exists post-deletion).
+	if new_len == 0 then
+		return { offset = byte_offset, removed = old_len, added = 0, text = '' }
+	end
+
 	-- relative → absolute end position: same-row inserts offset from
 	-- start_col, multi-line inserts end at new_end_col of the last line
 	local end_row = start_row + new_end_row

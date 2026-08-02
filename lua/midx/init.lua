@@ -1,60 +1,22 @@
 
-local events     = require('midx.events')
+local event      = require('midx.event')
 local session    = require('midx.session')
-local highlights = require('midx.highlights')
+local buffer     = require('midx.buffer')
+local syntax     = require('midx.syntax')
+local animation  = require('midx.animation')
+local background = require('midx.background')
 
 local M = {}
 
---- Handle incoming messages from server for a specific buffer
--- @param bufnr number - Buffer this message belongs to
--- @param msg table - Parsed JSON message
-local function apply_message(bufnr, msg)
-	if not msg or type(msg) ~= 'table' then
-		return
-	end
-
-	-- State update message
-	if msg.type == "state" then
-		if msg.playing ~= nil then
-			session.set_state(bufnr, 'is_playing', msg.playing)
-		end
-		return
-	end
-
-	-- Clock sync (connection-level, no buffer needed) : capture l'offset
-	if msg.type == "sync" then
-		highlights.sync(msg.now)
-		return
-	end
-
-	-- All other messages require a valid buffer
-	if not vim.api.nvim_buf_is_valid(bufnr) then
-		return
-	end
-
-	if msg.type == "highlight" and msg.highlights then
-		highlights.syntax(bufnr, msg.highlights)
-	elseif msg.type == "live" then
-		highlights.animate(bufnr, msg)
-	elseif msg.type == "diagnostic" and msg.diagnostics then
-		highlights.diagnostics(bufnr, msg.diagnostics)
-	else
-		vim.notify(
-			string.format('[midx] Unhandled message type: %s', tostring(msg.type)),
-			vim.log.levels.WARN
-		)
-	end
-end
-
 --- Handle state changes
 local function on_state_changed(bufnr, key, value)
-	-- au stop (ou déconnexion) : coupe les highlights dynamiques (fades)
+	-- on stop (or disconnect): kill the dynamic highlights (fades)
 	if key == 'is_playing' and not value then
-		highlights.clear(bufnr)
+		animation.clear(bufnr)
 	end
-	-- à la déconnexion : efface la syntaxe → retour au fond "Comment"
+	-- on disconnect: clear the syntax layer → back to the "Comment" base
 	if key == 'is_connected' and not value then
-		highlights.clear_syntax(bufnr)
+		syntax.clear(bufnr)
 	end
 end
 
@@ -62,35 +24,31 @@ end
 local function setup_auto_commands()
 	local augroup = vim.api.nvim_create_augroup('MidxAutocmds', {clear = true})
 
-	-- Dernière b:changedtick envoyée, par buffer (voir TextChanged plus bas)
+	-- Last b:changedtick sent, per buffer (see TextChanged below)
 	local last_tick = {}
 
-	-- FileType event: attach when opening .midx file
+	-- FileType event: attach a .midx buffer's session
 	vim.api.nvim_create_autocmd('FileType', {
 		group    = augroup,
 		pattern  = 'midx',
 		callback = function(args)
-			local bufnr = args.buf
-			session.attach(bufnr, apply_message)
-			highlights.dim(bufnr)                 -- fond "Comment" par défaut (avant connexion)
-			vim.bo[bufnr].commentstring = '\\\\ %s'
+			buffer.attach(args.buf)
 		end
 	})
 
-	-- BufUnload event: detach buffer
+	-- BufUnload event: detach the buffer's session
 	vim.api.nvim_create_autocmd('BufUnload', {
 		group    = augroup,
 		pattern  = '*.midx',
 		callback = function(args)
-			session.detach(args.buf)
-			highlights.detach(args.buf)
+			buffer.detach(args.buf)
 			last_tick[args.buf] = nil
 		end
 	})
 
-	-- TextChanged events: send buffer to server
-	-- <Esc> quittant le mode insertion redéclenche un TextChanged redondant ;
-	-- on déduplique via b:changedtick (n'incrémente que sur un vrai changement).
+	-- TextChanged events: send buffer to server.
+	-- <Esc> leaving insert mode re-triggers a redundant TextChanged;
+	-- dedup via b:changedtick (only bumps on a real change).
 	vim.api.nvim_create_autocmd({'TextChanged', 'TextChangedI'}, {
 		group    = augroup,
 		pattern  = '*.midx',
@@ -101,7 +59,7 @@ local function setup_auto_commands()
 			end
 			last_tick[args.buf] = tick
 			session.send_buffer(args.buf)
-			highlights.dim(args.buf)              -- re-couvre le nouveau contenu en "Comment"
+			syntax.cover(args.buf)                -- re-cover new content as "Comment"
 		end
 	})
 end
@@ -113,7 +71,7 @@ local function setup_user_commands()
 	vim.api.nvim_create_user_command('MidxTogglePlay', function()
 		local bufnr = vim.api.nvim_get_current_buf()
 		session.send_toggle(bufnr)
-		highlights.clear(bufnr)
+		animation.clear(bufnr)
 	end, {
 		desc = 'Toggle midx play/pause',
 	})
@@ -143,21 +101,29 @@ end
 
 --- Setup event listeners
 local function setup_event_listeners()
-	events.on('state:changed', on_state_changed)
+	event.on('state:changed', on_state_changed)
 end
 
 --- Main setup function
 function M.setup()
-	-- Initialize highlights (background resolution + animation engine)
-	highlights.setup()
+	-- Initialize rendering: background resolution, syntax dim cache, fade engine
+	background.setup()
+	syntax.setup()
+	animation.setup()
 
-	-- Setup event listeners
 	setup_event_listeners()
 
-	-- Setup Neovim integration
 	setup_auto_commands()
 	setup_user_commands()
 	setup_keybindings()
+end
+
+--- Tear down the plugin's shared resources (the animation engine's timer +
+--- decoration provider). Call this BEFORE a hot reload that clears
+--- package.loaded, otherwise the old fade timer leaks (see animation.lua).
+--- Normal setup() re-runs are already idempotent and don't need this.
+function M.shutdown()
+	animation.shutdown()
 end
 
 return M

@@ -3,13 +3,14 @@
 -- One session per .midx buffer, stored in sessions[bufnr]
 
 local connection = require('midx.connection')
-local protocol   = require('midx.protocol')
-local events     = require('midx.events')
-local diff       = require('midx.diff')
+local encoder    = require('midx.protocol.encoder')
+local decoder    = require('midx.protocol.decoder')
+local event      = require('midx.event')
 
 local M = {}
 
--- Session registry: bufnr → { conn, decoder, is_connected, is_playing, revision }
+-- Session registry:
+-- bufnr → { conn, decoder, is_connected, is_playing, revision, generation }
 local sessions = {}
 
 
@@ -40,10 +41,14 @@ function M.set_state(bufnr, key, value)
 	end
 
 	s[key] = value
-	events.emit('state:changed', bufnr, key, value)
+	event.emit('state:changed', bufnr, key, value)
 end
 
---- Get content of a buffer
+--- Get content of a buffer, in nvim's canonical byte representation.
+-- nvim's internal byte accounting (the one on_bytes offsets use) always ends
+-- every line with '\n', including the last — regardless of the 'eol' option,
+-- which only affects file writing. The full-buffer baseline must match, or it
+-- would disagree with the diff stream by a trailing '\n'.
 -- @param bufnr number
 -- @return string|nil
 function M.get_content(bufnr)
@@ -51,14 +56,14 @@ function M.get_content(bufnr)
 		return nil
 	end
 	local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-	return table.concat(lines, '\n')
+	return table.concat(lines, '\n') .. '\n'
 end
 
 --- Attach a .midx buffer — creates a session with its own connection
 -- @param bufnr number
--- @param on_message function(bufnr, msg)
+-- @param handlers table - decoder handlers { syntax, live, diagnostic, state, clock }
 -- @return boolean
-function M.attach(bufnr, on_message)
+function M.attach(bufnr, handlers)
 	if type(bufnr) ~= 'number' then
 		error('session.attach: bufnr must be a number')
 	end
@@ -76,12 +81,17 @@ function M.attach(bufnr, on_message)
 		return true
 	end
 
-	local    conn = connection.new()
-	local decoder = protocol.new_decoder()
+	local conn = connection.new()
+	-- the decoder's immediacy gate reads the client's authoritative generation
+	-- (this session's outgoing counter) to drop superseded position frames
+	local dec  = decoder.new(handlers, function()
+		local s = sessions[bufnr]
+		return s and s.generation
+	end)
 
 	sessions[bufnr] = {
 		conn         = conn,
-		decoder      = decoder,
+		decoder      = dec,
 		is_connected = false,
 		is_playing   = false,
 		revision     = 0,
@@ -92,11 +102,9 @@ function M.attach(bufnr, on_message)
 		generation   = 0,
 	}
 
-	-- Wire up callbacks
+	-- Wire up callbacks: raw TCP bytes → binary decoder
 	conn.on_data = function(data)
-		decoder:decode(data, function(msg)
-			on_message(bufnr, msg)
-		end)
+		dec:feed(data)
 	end
 
 	conn.on_connected = function()
@@ -108,69 +116,21 @@ function M.attach(bufnr, on_message)
 				s.revision   = 0
 				s.generation = s.generation + 1
 			end
-			conn:send(protocol.encode_buffer(content, s and s.generation))
+			conn:send(encoder.buffer(content, s and s.generation))
 		end
 	end
 
 	conn.on_disconnected = function()
 		M.set_state(bufnr, 'is_connected', false)
 		M.set_state(bufnr, 'is_playing', false)
-		decoder:reset()
+		dec:reset()
 	end
-
-	-- Byte-level change tracking → DIFF messages.
-	-- Runs alongside the full-buffer send (TextChanged) during the
-	-- validation phase: the server can cross-check its spliced shadow
-	-- copy against each incoming BUFFER message.
-	vim.api.nvim_buf_attach(bufnr, false, {
-
-		on_bytes = function(_, buf, _tick,
-		                    start_row, start_col, byte_offset,
-		                    _old_end_row, _old_end_col, old_len,
-		                    new_end_row, new_end_col, new_len)
-
-			local s = sessions[buf]
-
-			-- session gone → returning true detaches this callback
-			if not s then
-				return true
-			end
-
-			-- offline edits are dropped: reconnection resends the
-			-- full buffer, which resynchronizes the sequence
-			if not s.is_connected then
-				return
-			end
-
-			local d = diff.from_bytes(buf, start_row, start_col, byte_offset,
-				old_len, new_end_row, new_end_col, new_len)
-			if not d then
-				return
-			end
-
-			-- pas de generation++ ici : le serveur n'applique pas encore
-			-- les diffs (aucun monde créé) — le jour où il les appliquera,
-			-- l'incrément migrera du buffer vers le diff
-			s.revision = s.revision + 1
-			local row, col = diff.cursor(buf)
-			s.conn:send(protocol.encode_diff(d, s.revision, row, col, s.generation))
-		end,
-
-		-- :e! and friends rewrite the buffer wholesale — resync with a
-		-- full BUFFER send (which resets the revision sequence)
-		on_reload = function(_, buf)
-			if not sessions[buf] then
-				return true
-			end
-			M.send_buffer(buf)
-		end,
-	})
 
 	conn:connect()
 
 	vim.notify(
 		string.format('[midx] Attached to buffer #%d', bufnr),
-		vim.log.levels.INFO
+		vim.log.levels.DEBUG
 	)
 
 	return true
@@ -189,7 +149,7 @@ function M.detach(bufnr)
 
 	vim.notify(
 		string.format('[midx] Detached from buffer #%d', bufnr),
-		vim.log.levels.INFO
+		vim.log.levels.DEBUG
 	)
 end
 
@@ -198,7 +158,7 @@ end
 -- @param bufnr number
 function M.send_buffer(bufnr)
 	local s = sessions[bufnr]
-	if not s then
+	if not s or not s.is_connected then
 		return
 	end
 
@@ -206,7 +166,7 @@ function M.send_buffer(bufnr)
 	if content then
 		s.revision   = 0
 		s.generation = s.generation + 1
-		s.conn:send(protocol.encode_buffer(content, s.generation))
+		s.conn:send(encoder.buffer(content, s.generation))
 	end
 end
 
@@ -218,7 +178,31 @@ function M.send_toggle(bufnr)
 		return
 	end
 
-	s.conn:send(protocol.encode_toggle(s.generation))
+	s.conn:send(encoder.toggle(s.generation))
+end
+
+--- Send a byte-splice diff (bumps the revision within the current generation).
+-- generation is NOT bumped here: the server doesn't apply diffs yet (no world
+-- created). When it does, the increment migrates from the buffer to the diff.
+-- @param bufnr number
+-- @param d table - byte-splice record { offset, removed, added, text }
+-- @param cursor_row number - 0-based
+-- @param cursor_col number - 0-based
+function M.send_diff(bufnr, d, cursor_row, cursor_col)
+	local s = sessions[bufnr]
+	if not s or not s.is_connected then
+		return
+	end
+
+	s.revision = s.revision + 1
+	s.conn:send(encoder.diff(d, s.revision, cursor_row, cursor_col, s.generation))
+end
+
+--- Whether a session exists for this buffer.
+-- @param bufnr number
+-- @return boolean
+function M.is_attached(bufnr)
+	return sessions[bufnr] ~= nil
 end
 
 return M
